@@ -36,7 +36,7 @@ Le projet est structuré en **3 couches interconnectées** :
    - Moteur décisionnel **Cyber-Brain** : évaluation de règles autonomes en temps réel et pilotage des actionneurs (pompe, ventilation, éclairage horticole).
    - API REST complète pour la télémétrie, l'historique des alertes, et la persistance du profil scientifique.
 
-3. **Couche Applicative & IHM (`mobile/`)** :
+3. **Couche Applicative & IHM (`frontend/`)** :
    - Application cross-platform (iOS, Android, Web) développée avec **React Native** et **Expo Router**.
    - **Jumeau Numérique (Digital Twin)** et télémétrie temps réel.
    - **Module de Simulation Prédictive** avec projection de rendement, crosshair et infobulle interactive (`react-native-gifted-charts`).
@@ -58,7 +58,7 @@ PFE/
 │   ├── Dockerfile            # Conteneurisation Docker
 │   └── docker-compose.yml    # Déploiement multi-services
 │
-├── mobile/                   # Application Mobile & Web (Expo / React Native)
+├── frontend/                 # Application Mobile & Web (Expo / React Native)
 │   ├── app/                  # Routes Expo Router ((tabs), digital-twin, etc.)
 │   ├── components/           # Composants UI, Cartes capteurs, Espace Scientifique
 │   │   ├── PredictiveSimulationView.tsx  # Graphique prédictif & Tooltip interactif
@@ -105,8 +105,8 @@ Le serveur démarre sur **`http://localhost:5000`** :
 ### 3. Lancement de l'Application Mobile / Web
 
 ```bash
-# 1. Accéder au répertoire mobile
-cd mobile
+# 1. Accéder au répertoire frontend
+cd frontend
 
 # 2. Démarrer le serveur de développement Expo
 npx expo start --web
