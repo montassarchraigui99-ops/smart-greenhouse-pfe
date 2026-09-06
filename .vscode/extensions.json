@@ -1,0 +1,20 @@
+{
+  "recommendations": [
+    "expo.vscode-expo-tools",
+    "msjsdiag.vscode-react-native",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "dsznajder.es7-react-js-snippets",
+    "formulahendry.auto-close-tag",
+    "formulahendry.auto-rename-tag",
+    "ms-azuretools.vscode-docker",
+    "qwtel.sqlite-viewer",
+    "humao.rest-client",
+    "mikestead.dotenv",
+    "wokwi.wokwi-vscode",
+    "ms-vscode.cpptools",
+    "vsciot-vscode.vscode-arduino",
+    "eamodio.gitlens",
+    "pkief.material-icon-theme"
+  ]
+}

@@ -1,0 +1,53 @@
+====================================================================
+          REVUE ARCHITECTURALE - SMART GREENHOUSE MOBILE
+====================================================================
+
+1. VUE D'ENSEMBLE DU SYSTÈME (PRÉSENT ET FUTUR)
+--------------------------------------------------------------------
+L'application mobile a été pensée avec une architecture de type "Clean Frontend" orientée Data-Driven. 
+Bien que le système actuel utilise des données simulées (Mocks), toutes les couches applicatives ont été conçues pour se brancher nativement sur une architecture IoT complète et asynchrone :
+[ ESP32 ] -> [ MQTT Broker ] -> [ Backend Spécifique / Base de données ] -> [ API REST/GraphQL ] <-> [ Application Mobile (L'architecture décrite ici) ]
+
+2. CHOIX TECHNOLOGIQUES ET FONDATIONS
+--------------------------------------------------------------------
+• Framework Core : React Native (v0.86.2) couplé à Expo (SDK 57).
+• Navigation : Expo Router (Routing basé sur les fichiers), très performant, favorisant l'indexation, le deep linking et limitant les re-rendus inutiles de l'arborescence.
+• Gestion d'État Asynchrone : TanStack Query (React Query v5). C'est le cœur du système. Il gère la mise en cache, la déduplication des requêtes, le "pull-to-refresh" automatique, les retentatives (retries), et les optimisations du réseau.
+• Gestion d'État Global (UI) : Zustand (v5). Utilisé exclusivement pour des états synchrones persistants (thème, identifiant de la serre courante, préférences de notifications) car il est beaucoup plus léger, rapide et moins verbeux que Redux.
+• Design System & UI : Une UI custom construite de zéro via l'API native `StyleSheet` pour une performance optimale sans l'encombrement (overhead) de bibliothèques UI lourdes.
+• Composants Graphiques : `react-native-gifted-charts` pour les visualisations des capteurs, capable de gérer de grandes quantités de données et d'autoriser un balayage performant.
+
+3. SÉPARATION DES PRÉOCCUPATIONS (DOSSIERS)
+--------------------------------------------------------------------
+La structure du projet isole strictement la couche "Présentation" de la couche "Business Logic" et de la couche "Accès aux Données".
+
+/mobile
+├── /app                -> Gère exclusivement le routage (Expo Router). Chaque fichier = un écran. Ne contient aucune logique métier.
+├── /components         -> Composants UI "Bêtes" (Dumb Components). Ils reçoivent des propriétés (props) et rendent l'interface. Séparés par domaine (/ui, /sensors, /controls, /alerts) pour maximiser la réutilisabilité.
+├── /services           -> La couche d'accès aux données. Actuellement des "Sleeps" (délais) + Mock Data, c'est l'UNIQUE endroit à modifier (fetch ou axios) quand l'API de l'ESP32 / Backend sera prête.
+├── /hooks              -> La couche logique. Contient les hooks de TanStack Query (ex: `useSensors.ts`). Jouent le rôle de contrôleurs entre les services et la vue.
+├── /store              -> État global de l'application (Zustand).
+├── /types              -> Le contrat de données strict (TypeScript) garantissant la fiabilité métier (interfaces SensorReading, Actuator, Alert, Recommendation).
+├── /constants          -> Design Tokens (Couleurs, Espacements) et Data Statique (Mocks).
+└── /utils              -> Fonctions pures de formatage ou de calcul mathématique.
+
+4. ROBUSTESSE ET PERFORMANCE
+--------------------------------------------------------------------
+A. Rendu Optimisé
+L'utilisation de TypeScript strict évite les exceptions à l'exécution (Runtime Errors). Le composant principal `SensorChart` n'est pas encombré par le recalcul de la donnée : la logique de manipulation (filtrage historique) est externalisée.
+
+B. Mutabilité Optimiste (Optimistic UI) via TanStack Query
+La gestion des "Contrôles Actuateurs" (Pompes, Ventilation) intègre déjà le concept de mutation de React Query. Quand l'utilisateur bascule un switch d'irrigation, l'interface utilisateur (UI) est instantanée grâce au cache, pendant que le service s'occupe de la communication réseau avec l'API, maximisant la sensation de fluidité, même avec des réseaux instables en contexte agricole.
+
+C. Compatibilité Multi-Plateforme (Web, iOS, Android)
+La plateforme Web est prise en charge nativement via `react-native-web`. Le remplacement récent de l'ancienne dépendance gérant les graphiques a permis de garantir la compilation sans lever les exceptions du DOM restrictives de React 19.
+
+5. PRÉPARATION À L'IOT (ESP32) ET CONSEILS DE MIGRATION
+--------------------------------------------------------------------
+• Pour l'IoT en direct : Si vous connectez le mobile via MQTT directement sans backend au milieu, l'architecture TanStack Query devra être complétée par un "Websocket Subcription Provider" au niveau du `_layout.tsx` pour écouter les messages MQTT sortant en temps réel et pousser l'état via la fonction `queryClient.setQueryData(['sensors'], newData)`. 
+• L'interface Typescript `SensorReading` dictera le format strict dans lequel envoyer le JSON de votre ESP32 pour garantir la lisibilité et l'affichage. (La donnée reçue devra inclure id, type, value, unit, status).
+
+6. BILAN SÉCURITÉ ET ÉVOLUTIVITÉ
+--------------------------------------------------------------------
+L'absence de Props Drilling (passage de propriétés sur 10 niveaux) et la forte typification garantissent un code hautement évolutif. Ajouter un nouveau module comme les "Drones" ou le "Digital Twin Complet 3D" n'impactera que la création d'un nouveau hook. Les composants existants restent préservés. Le stack est moderne (2025/2026 Ready).
+====================================================================

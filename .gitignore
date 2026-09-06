@@ -1,0 +1,71 @@
+# ==========================================
+# CyberCortex ERP / Smart Greenhouse Monorepo
+# Git Ignore Configuration
+# ==========================================
+
+# Dependencies
+node_modules/
+**/node_modules/
+.pnp
+.pnp.js
+
+# Expo & React Native
+.expo/
+**/.expo/
+dist/
+web-build/
+*.tsbuildinfo
+
+# Mobile builds
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Database WAL & Temporary files (preserve base greenhouse.db seed if needed)
+*.db-wal
+*.db-shm
+*.db-journal
+backend/backups/
+backend/mosquitto/data/*.db
+
+# Logs, Crash dumps & Diagnostics
+*.log
+*.log.*
+*_log.txt
+*_errors.txt
+*_errors_cmd.txt
+backend_crash.log
+backend_stderr.log
+build_log.txt
+logs.txt
+test*.txt
+arborescence.txt
+
+# Local test scratch scripts
+backend/test*.js
+backend/tester.js
+backend/test*.json
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# OS artifacts
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE & Editor files
+.idea/
+.claude/
+.vscode/*
+!.vscode/extensions.json
+
