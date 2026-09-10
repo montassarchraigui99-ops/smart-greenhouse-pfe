@@ -4,25 +4,70 @@
  * Objectif : Initialisation et optimisation de la base SQLite pour le nœud Edge IoT (CyberCortex ERP).
  */
 
-const Database = require('better-sqlite3');
 const path = require('path');
 
 // Détermination du chemin de la base de données.
-// Idéalement '/config/greenhouse.db' sur la Raspberry Pi en mode production,
-// ou un chemin local comme 'greenhouse.db' pendant le développement.
 const dbPath = process.env.DB_PATH || path.join(__dirname, 'greenhouse.db');
-
 console.log(`[DB] Connexion à la base de données SQLite : ${dbPath}`);
-const db = new Database(dbPath);
 
-// ==========================================
-// MISSION 1 : Connexion et Optimisation WAL
-// ==========================================
-// Pragmatiques essentiels pour un contexte IoT haute fréquence (Lectures + Écritures concurrentes)
-db.pragma('journal_mode = WAL');       // Write-Ahead Logging : lectures et écritures simultanées
-db.pragma('synchronous = NORMAL');     // Moins de fsync(), optimisé et sécurisé en mode WAL
-db.pragma('temp_store = MEMORY');      // Conserve les tables temporaires en RAM (préserve la carte SD de la Pi)
-db.pragma('busy_timeout = 5000');      // Timeout de 5s pour éviter l'erreur "Database is locked" sous forte charge
+let db;
+try {
+    const Database = require('better-sqlite3');
+    db = new Database(dbPath);
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
+    db.pragma('temp_store = MEMORY');
+    db.pragma('busy_timeout = 5000');
+} catch (loadErr) {
+    console.log('[DB] Fallback sur node:sqlite natif (Node.js engine):', loadErr.message);
+    const { DatabaseSync } = require('node:sqlite');
+    const nativeDb = new DatabaseSync(dbPath);
+    try {
+        nativeDb.exec('PRAGMA journal_mode = WAL;');
+        nativeDb.exec('PRAGMA synchronous = NORMAL;');
+        nativeDb.exec('PRAGMA temp_store = MEMORY;');
+        nativeDb.exec('PRAGMA busy_timeout = 5000;');
+    } catch (pErr) {
+        console.warn('[DB-WARN] Pragmas WAL:', pErr.message);
+    }
+
+    db = {
+        prepare: (sql) => {
+            const stmt = nativeDb.prepare(sql);
+            return {
+                run: (...args) => {
+                    if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null && !Array.isArray(args[0])) {
+                        return stmt.run(args[0]);
+                    }
+                    return stmt.run(...args);
+                },
+                all: (...args) => stmt.all(...args),
+                get: (...args) => stmt.get(...args)
+            };
+        },
+        transaction: (fn) => {
+            return (...args) => {
+                nativeDb.exec('BEGIN TRANSACTION');
+                try {
+                    const res = fn(...args);
+                    nativeDb.exec('COMMIT');
+                    return res;
+                } catch (e) {
+                    nativeDb.exec('ROLLBACK');
+                    throw e;
+                }
+            };
+        },
+        pragma: (str) => {
+            try {
+                return nativeDb.exec(`PRAGMA ${str}`);
+            } catch (e) {
+                return null;
+            }
+        },
+        exec: (sql) => nativeDb.exec(sql)
+    };
+}
 
 // ==========================================
 // MISSION 2 : Définition du Schéma (DDL)

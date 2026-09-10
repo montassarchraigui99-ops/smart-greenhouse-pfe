@@ -29,8 +29,6 @@ const cors = require('cors');
 const { initDB, startDataPurgeTask } = require('./database');
 
 // Importation des routes et services
-const actuatorRoutes = require('./routes/actuatorRoutes');
-const alertRoutes = require('./routes/alertRoutes');
 const apiRoutes = require('./routes/api');
 const { initMqttService } = require('./services/mqttService');
 
