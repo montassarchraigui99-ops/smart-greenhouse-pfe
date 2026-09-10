@@ -1,11 +1,28 @@
-// Intercept React 19 / React Native Web DOM event handler compatibility warnings
+// Intercept React 19 / React Native Web DOM compatibility warnings
+import { LogBox, Platform } from 'react-native';
+
 if (typeof console !== 'undefined') {
     const originalConsoleError = console.error;
     console.error = (...args: any[]) => {
-        const firstArg = typeof args[0] === 'string' ? args[0] : '';
+        const fullMessage = args
+            .map(arg => {
+                if (typeof arg === 'string') return arg;
+                if (arg instanceof Error) return arg.message;
+                try {
+                    return JSON.stringify(arg) || '';
+                } catch {
+                    return String(arg);
+                }
+            })
+            .join(' ');
+
         if (
-            firstArg.includes('Unknown event handler property') ||
-            firstArg.includes('Invalid event handler property')
+            fullMessage.includes('Unknown event handler property') ||
+            fullMessage.includes('Invalid event handler property') ||
+            fullMessage.includes('non-boolean attribute') ||
+            fullMessage.includes('collapsable') ||
+            fullMessage.includes('React does not recognize the') ||
+            fullMessage.includes('Received `false` for a non-boolean attribute')
         ) {
             return;
         }
@@ -14,11 +31,24 @@ if (typeof console !== 'undefined') {
 
     const originalConsoleWarn = console.warn;
     console.warn = (...args: any[]) => {
-        const firstArg = typeof args[0] === 'string' ? args[0] : '';
+        const fullMessage = args
+            .map(arg => {
+                if (typeof arg === 'string') return arg;
+                if (arg instanceof Error) return arg.message;
+                try {
+                    return JSON.stringify(arg) || '';
+                } catch {
+                    return String(arg);
+                }
+            })
+            .join(' ');
+
         if (
-            firstArg.includes('"shadow*" style props are deprecated') ||
-            firstArg.includes('props.pointerEvents is deprecated') ||
-            firstArg.includes('TouchableMixin is deprecated')
+            fullMessage.includes('"shadow*" style props are deprecated') ||
+            fullMessage.includes('props.pointerEvents is deprecated') ||
+            fullMessage.includes('TouchableMixin is deprecated') ||
+            fullMessage.includes('non-boolean attribute') ||
+            fullMessage.includes('collapsable')
         ) {
             return;
         }
@@ -26,5 +56,13 @@ if (typeof console !== 'undefined') {
     };
 }
 
-import 'expo-router/entry';
+LogBox.ignoreLogs([
+    /non-boolean attribute/i,
+    /collapsable/i,
+    /Unknown event handler property/i,
+    /Invalid event handler property/i,
+    /props\.pointerEvents is deprecated/i,
+    /"shadow\*" style props are deprecated/i,
+]);
 
+import 'expo-router/entry';

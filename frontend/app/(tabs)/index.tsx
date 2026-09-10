@@ -3,17 +3,22 @@ import { View, Text, StyleSheet, ScrollView, Animated, Pressable, Platform, Dime
 import Svg, { Ellipse, Rect, Polygon, G, Line, Circle, Path } from 'react-native-svg';
 import ActionBar from '../../components/ActionBar';
 import PredictiveSimulationView from '../../components/PredictiveSimulationView';
+import AIChatbot from '../../components/AIChatbot';
 import { API_BASE_URL, fetchActuatorLogs } from '../../services/api';
 import * as Notifications from 'expo-notifications';
 
-// Configuration du comportement des notifications pour qu'elles s'affichent même si l'app est au premier plan
-Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: false,
-    }),
-});
+// Configuration du comportement des notifications pour qu'elles s'affichent même si l'app est au premier plan (Mobile uniquement)
+if (Platform.OS !== 'web') {
+    Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+            shouldShowAlert: true,
+            shouldPlaySound: true,
+            shouldSetBadge: false,
+            shouldShowBanner: true,
+            shouldShowList: true,
+        }),
+    });
+}
 
 export interface HoverState extends PressableStateCallbackType {
     hovered?: boolean;
@@ -200,10 +205,14 @@ export default function HomeScreen() {
     const [actionLogs, setActionLogs] = useState<any[]>([]);
 
     useEffect(() => {
-        // Demander les permissions système de notification
-        Notifications.requestPermissionsAsync().then(({ status }) => {
-            if (status !== 'granted') console.log('Notification permissions denied.');
-        });
+        // Demander les permissions système de notification (Mobile uniquement)
+        if (Platform.OS !== 'web') {
+            Notifications.requestPermissionsAsync().then(({ status }) => {
+                if (status !== 'granted') console.log('Notification permissions denied.');
+            }).catch(() => {});
+        } else if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission().catch(() => {});
+        }
 
         const pollLogsAndNotify = async () => {
             try {
@@ -215,15 +224,25 @@ export default function HomeScreen() {
                         if (prevTime === null) return latest.timestamp;
 
                         if (new Date(latest.timestamp) > new Date(prevTime)) {
-                            // Déclenche une notification Push Native/Web
-                            Notifications.scheduleNotificationAsync({
-                                content: {
-                                    title: '⚠️ Intervention Cyber-Brain',
-                                    body: `Action corrective: ${latest.action} (${latest.actuator_key})\nDéclencheur: ${latest.trigger_source}`,
-                                    sound: true,
-                                },
-                                trigger: null,
-                            });
+                            // Déclenche une notification Push Native/Web selon la plateforme
+                            if (Platform.OS !== 'web') {
+                                Notifications.scheduleNotificationAsync({
+                                    content: {
+                                        title: '⚠️ Intervention Cyber-Brain',
+                                        body: `Action corrective: ${latest.action} (${latest.actuator_key})\nDéclencheur: ${latest.trigger_source}`,
+                                        sound: true,
+                                    },
+                                    trigger: null,
+                                }).catch(() => {});
+                            } else if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+                                try {
+                                    new window.Notification('⚠️ Intervention Cyber-Brain', {
+                                        body: `Action corrective: ${latest.action} (${latest.actuator_key}) - Déclencheur: ${latest.trigger_source}`,
+                                    });
+                                } catch (notifErr) {
+                                    console.log('[NOTIF-WEB]', notifErr);
+                                }
+                            }
                             return latest.timestamp;
                         }
                         return prevTime;
@@ -450,6 +469,9 @@ export default function HomeScreen() {
                 </View>
 
             </ScrollView>
+
+            {/* Assistant IA Conversationnel (Google Gemini Copilot) */}
+            <AIChatbot />
         </View>
     );
 }
@@ -590,7 +612,6 @@ const styles = StyleSheet.create({
     logHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: TOKENS.bg2 },
     logTitle: { fontSize: 16, fontWeight: '700', color: TOKENS.text, letterSpacing: 0.5 },
     liveIndicator: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#e8f6f3', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
-    liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#27ae60', marginRight: 6 },
     liveText: { fontSize: 10, fontWeight: 'bold', color: '#27ae60' },
     emptyLog: { padding: 20, alignItems: 'center' },
     emptyLogText: { color: '#95a5a6', fontStyle: 'italic' },

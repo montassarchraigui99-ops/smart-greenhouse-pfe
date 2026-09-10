@@ -21,13 +21,20 @@ export interface ActuatorLog {
     timestamp: string;
 }
 
+export type Timeframe = 'live' | '24h' | '7d' | '30d';
+
 /**
- * Récupère l'historique d'un capteur sur les dernières 24h.
+ * Récupère l'historique d'un capteur avec agrégation/downsampling SQLite côté serveur.
  * @param sensorKey Ex: 'ambient_temperature' ou 'air_humidity'
+ * @param timeframe 'live' | '24h' | '7d' | '30d' (ou libellé 'En direct', '24H', '7 Jours', '30 Jours')
  */
-export const fetchTelemetry = async (sensorKey: string): Promise<TelemetryData[]> => {
+export const fetchTelemetry = async (
+    sensorKey: string,
+    timeframe: Timeframe | string = 'live'
+): Promise<TelemetryData[]> => {
     try {
-        const response = await fetch(`${API_BASE_URL}/telemetry?sensor_key=${sensorKey}`);
+        const tfParam = timeframe ? `&timeframe=${encodeURIComponent(timeframe)}` : '';
+        const response = await fetch(`${API_BASE_URL}/telemetry?sensor_key=${sensorKey}${tfParam}`);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -63,7 +70,9 @@ export const fetchActuatorLogs = async (): Promise<ActuatorLog[]> => {
 export const getSensors = async () => {
     return [
         { id: '1', sensor_key: 'ambient_temperature', name: 'Température Ambiante', unit: '°C', status: 'Actif' },
-        { id: '2', sensor_key: 'air_humidity', name: 'Humidité de l\'Air', unit: '%', status: 'Actif' }
+        { id: '2', sensor_key: 'air_humidity', name: 'Humidité de l\'Air', unit: '%', status: 'Actif' },
+        { id: '3', sensor_key: 'photoperiod', name: 'Photopériode', unit: 'h', status: 'Actif' },
+        { id: '4', sensor_key: 'water_consumption', name: 'Consommation d\'Eau', unit: 'L', status: 'Actif' }
     ];
 };
 
@@ -100,10 +109,12 @@ export const fetchAlerts = async (): Promise<AlertItem[]> => {
     }
 };
 
-export const markAlertAsRead = async (alertId: number) => {
+export const markAlertAsRead = async (alertId: number, isRead: boolean = true) => {
     try {
         const response = await fetch(`${API_BASE_URL}/alerts/${alertId}/read`, {
             method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_read: isRead ? 1 : 0 })
         });
         const json = await response.json();
         return json;
@@ -161,3 +172,46 @@ export const updateUserProfile = async (profileUpdate: Partial<UserProfile>) => 
         throw error;
     }
 };
+
+// ==========================================
+// 5. API CHATBOT IA (GOOGLE GEMINI)
+// ==========================================
+export interface ChatMessage {
+    id: string;
+    role: 'user' | 'assistant';
+    text: string;
+    timestamp: string;
+    source?: 'gemini' | 'cyber-brain-local';
+}
+
+export interface ChatResponse {
+    status: string;
+    reply: string;
+    source?: 'gemini' | 'cyber-brain-local';
+    model?: string;
+}
+
+export const sendChatMessage = async (
+    message: string,
+    history: { role: 'user' | 'assistant'; text: string }[] = []
+): Promise<ChatResponse> => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, history })
+        });
+        if (!response.ok) {
+            throw new Error(`Erreur HTTP: ${response.status}`);
+        }
+        return await response.json();
+    } catch (error: any) {
+        console.error('[API-ERROR] sendChatMessage:', error);
+        return {
+            status: 'error',
+            reply: "Désolé, une erreur réseau empêche la communication avec le Cyber-Brain. Veuillez vérifier que le serveur backend est bien démarré.",
+            source: 'cyber-brain-local'
+        };
+    }
+};
+

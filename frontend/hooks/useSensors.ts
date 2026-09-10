@@ -9,3 +9,17 @@ export const useSensors = () => {
         refetchInterval: 5000,
     });
 };
+
+export const useGreenhouse = () => {
+    return {
+        data: {
+            id: 'gh-01',
+            name: 'Serre Intelligente CyberCortex',
+            isOnline: true,
+            plantHealth: 94,
+            sensors: [] as any[],
+        },
+        isLoading: false,
+    };
+};
+

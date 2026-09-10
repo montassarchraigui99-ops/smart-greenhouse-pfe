@@ -82,7 +82,7 @@ export default function GreenhouseScreen() {
             {/* Sensor Readings */}
             <Text style={styles.sectionTitle}>Current Readings</Text>
             <View style={styles.sensorGrid}>
-                {greenhouse.sensors.map((sensor) => (
+                {greenhouse.sensors.map((sensor: any) => (
                     <SensorCard key={sensor.id} reading={sensor} />
                 ))}
             </View>

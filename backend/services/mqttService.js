@@ -6,6 +6,7 @@
 
 const mqtt = require('mqtt');
 const { db } = require('../database'); // Instance better-sqlite3 connectée en mode WAL
+const { dispatchAlertMailSafely } = require('./mailService');
 
 // Configuration du broker MQTT (Edge résilience)
 const BROKER_URL = process.env.MQTT_BROKER_URL || 'mqtt://broker.hivemq.com:1883';
@@ -139,6 +140,18 @@ function evaluateCyberBrainRules(sensor_key, value, isSimulation = false) {
 
                 const alertStmt = db.prepare('INSERT INTO alerts_log (title, message, severity, tag) VALUES (?, ?, ?, ?)');
                 alertStmt.run(title, message, severity, tag);
+
+                // 4. Dispatch automatisé d'alerte e-mail (asynchrone et non-bloquant)
+                if (!isSimulation && (severity === 'critique' || severity === 'warning')) {
+                    dispatchAlertMailSafely({
+                        title,
+                        message,
+                        severity,
+                        tag,
+                        timestamp: new Date().toISOString(),
+                        actions: [commandPayload]
+                    });
+                }
             }
         }
     } catch (error) {

@@ -18,7 +18,7 @@ import {
     Modal,
     FlatList,
 } from 'react-native';
-import { fetchUserProfile, updateUserProfile, UserProfile } from '../services/api';
+import { fetchUserProfile, updateUserProfile, UserProfile, API_BASE_URL } from '../services/api';
 import {
     TUNISIAN_GOVERNORATES,
     Governorate,
@@ -35,6 +35,8 @@ const TOKENS = {
     bg: '#f8fafc',
     panel: '#ffffff',
     panelElevated: '#f1f5f9',
+    surface: '#ffffff',
+    surfaceLighter: '#f1f5f9',
     border: '#e2e8f0',
     borderFocus: '#27ae60',
     text: '#0f172a',
@@ -71,6 +73,14 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
     const [loading, setLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
 
+    // États locaux du profil (Hydratation persistante)
+    const [fullName, setFullName] = useState('');
+    const [email, setEmail] = useState('');
+    const [phone, setPhone] = useState('');
+    const [location, setLocation] = useState('');
+    const [role, setRole] = useState('');
+    const [organization, setOrganization] = useState('');
+
     // Formulaire d'édition
     const [isEditing, setIsEditing] = useState(false);
     const [form, setForm] = useState<Partial<UserProfile>>({});
@@ -82,16 +92,64 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
     // Feedback utilisateur (Toast / Bannière)
     const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+    // Passerelle E-mail SMTP (Cyber-Brain Dispatcher)
+    const [isTestingEmail, setIsTestingEmail] = useState(false);
+    const [emailTestResult, setEmailTestResult] = useState<{ type: 'success' | 'error'; message: string; previewUrl?: string } | null>(null);
+
+    const handleTestEmail = async () => {
+        setIsTestingEmail(true);
+        setEmailTestResult(null);
+        try {
+            const targetEmail = profile?.email || email || 'montassarchraigui99@gmail.com';
+            const response = await fetch(`${API_BASE_URL}/notifications/test-email`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: targetEmail }),
+            });
+            const data = await response.json();
+            if (response.ok && data.status === 'success') {
+                setEmailTestResult({
+                    type: 'success',
+                    message: `✅ Alerte e-mail de test expédiée avec succès à ${targetEmail} !`,
+                    previewUrl: data.details?.previewUrl,
+                });
+            } else {
+                setEmailTestResult({
+                    type: 'error',
+                    message: `❌ ${data.message || 'Échec du test de notification SMTP'}`,
+                });
+            }
+        } catch (err: any) {
+            setEmailTestResult({
+                type: 'error',
+                message: `❌ Erreur réseau lors du test SMTP : ${err.message}`,
+            });
+        } finally {
+            setIsTestingEmail(false);
+        }
+    };
+
     // ============================================
-    // 1. Chargement Initial du Profil
+    // 1. Hydratation du Profil au Montage (GET /api/user/profile)
     // ============================================
-    const loadProfile = useCallback(async () => {
+    const loadProfileData = async () => {
         setLoading(true);
         try {
-            const data = await fetchUserProfile();
-            if (data && data.profile) {
-                setProfile(data.profile);
-                setForm(data.profile);
+            const response = await fetch(`${API_BASE_URL}/user/profile`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            const profileData: UserProfile = data.profile || data;
+            if (profileData) {
+                setProfile(profileData);
+                setFullName(profileData.full_name || '');
+                setEmail(profileData.email || '');
+                setPhone(profileData.phone || '');
+                setLocation(profileData.location || '');
+                setRole(profileData.role || '');
+                setOrganization(profileData.organization || '');
+                setForm(profileData);
                 if (data.stats) {
                     setStats(data.stats);
                 }
@@ -101,14 +159,14 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
         } finally {
             setLoading(false);
         }
-    }, []);
+    };
 
     useEffect(() => {
-        loadProfile();
-    }, [loadProfile]);
+        loadProfileData();
+    }, []);
 
     // ============================================
-    // 2. Persistance Atomique Sécurisée
+    // 2. Persistance Atomique Sécurisée (handleSaveProfile)
     // ============================================
     const handleSaveProfile = async () => {
         setIsSaving(true);
@@ -116,33 +174,54 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
 
         try {
             // Validation et normalisation du gouvernorat tunisien
-            const locationValue = form.location && isValidGovernorate(form.location)
+            const locationValue = (form.location && isValidGovernorate(form.location))
                 ? form.location
-                : (profile?.location && isValidGovernorate(profile.location) ? profile.location : DEFAULT_GOVERNORATE);
+                : (location && isValidGovernorate(location)
+                    ? location
+                    : ((profile?.location && isValidGovernorate(profile.location)) ? profile.location : DEFAULT_GOVERNORATE));
 
-            const payload: Partial<UserProfile> = {
-                full_name: form.full_name?.trim() || profile?.full_name || 'Chercheur',
-                role: form.role?.trim() || profile?.role || 'Agronome',
-                email: form.email?.trim() || profile?.email || 'user@smartagri.co',
-                phone: form.phone?.trim() || profile?.phone || '',
-                organization: form.organization?.trim() || profile?.organization || 'CyberCortex ERP',
+            const payload = {
+                full_name: (form.full_name !== undefined ? form.full_name : fullName)?.trim() || 'Chercheur',
+                role: (form.role !== undefined ? form.role : role)?.trim() || 'Agronome',
+                email: (form.email !== undefined ? form.email : email)?.trim() || 'user@smartagri.co',
+                phone: (form.phone !== undefined ? form.phone : phone)?.trim() || '',
+                organization: (form.organization !== undefined ? form.organization : organization)?.trim() || 'CyberCortex ERP',
                 location: locationValue,
             };
 
-            const response = await updateUserProfile(payload);
+            const response = await fetch(`${API_BASE_URL}/user/profile`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
 
-            if (response && response.status === 'success' && response.profile) {
-                setProfile(response.profile);
-                setForm(response.profile);
+            // Le message de confirmation (Toast/Alert) ne s'affiche QUE si HTTP 200 OK
+            if (response.status === 200) {
+                const result = await response.json();
+                const updated: UserProfile = (result && result.profile) ? result.profile : payload;
+
+                setProfile(updated);
+                setFullName(updated.full_name || '');
+                setEmail(updated.email || '');
+                setPhone(updated.phone || '');
+                setLocation(updated.location || '');
+                setRole(updated.role || '');
+                setOrganization(updated.organization || '');
+                setForm(updated);
+
                 setIsEditing(false);
                 setFeedback({
                     type: 'success',
                     message: 'Profil scientifique mis à jour et persisté avec succès dans SQLite Edge.',
                 });
             } else {
-                throw new Error(response?.message || 'Échec de la persistance.');
+                const errorData = await response.json().catch(() => null);
+                throw new Error(errorData?.message || `Erreur serveur HTTP ${response.status}`);
             }
         } catch (error: any) {
+            console.error('[ScientificSpace] Erreur lors de la sauvegarde :', error);
             setFeedback({
                 type: 'error',
                 message: error.message || 'Impossible d\'enregistrer les modifications.',
@@ -154,6 +233,12 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
 
     const handleCancelEdit = () => {
         if (profile) {
+            setFullName(profile.full_name || '');
+            setEmail(profile.email || '');
+            setPhone(profile.phone || '');
+            setLocation(profile.location || '');
+            setRole(profile.role || '');
+            setOrganization(profile.organization || '');
             setForm(profile);
         }
         setIsEditing(false);
@@ -172,6 +257,7 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
     }, [searchQuery]);
 
     const handleSelectGovernorate = (gov: Governorate) => {
+        setLocation(gov);
         setForm((prev) => ({ ...prev, location: gov }));
         setIsPickerVisible(false);
         setSearchQuery('');
@@ -261,7 +347,14 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
                                         <Pressable
                                             style={styles.editButton}
                                             onPress={() => {
-                                                setForm(profile || {});
+                                                setForm({
+                                                    full_name: fullName || profile?.full_name || '',
+                                                    email: email || profile?.email || '',
+                                                    phone: phone || profile?.phone || '',
+                                                    location: location || profile?.location || '',
+                                                    role: role || profile?.role || '',
+                                                    organization: organization || profile?.organization || '',
+                                                });
                                                 setIsEditing(true);
                                                 setFeedback(null);
                                             }}
@@ -273,18 +366,18 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
                                     <View style={styles.metadataPillsRow}>
                                         <View style={styles.metaPill}>
                                             <Text style={styles.metaPillIcon}>✉</Text>
-                                            <Text style={styles.metaPillText}>{profile?.email}</Text>
+                                            <Text style={styles.metaPillText}>{profile?.email || email}</Text>
                                         </View>
-                                        {Boolean(profile?.phone) && (
+                                        {Boolean(profile?.phone || phone) && (
                                             <View style={styles.metaPill}>
                                                 <Text style={styles.metaPillIcon}>📞</Text>
-                                                <Text style={styles.metaPillText}>{profile?.phone}</Text>
+                                                <Text style={styles.metaPillText}>{profile?.phone || phone}</Text>
                                             </View>
                                         )}
                                         <View style={[styles.metaPill, styles.locationPill]}>
                                             <Text style={styles.metaPillIcon}>📍</Text>
                                             <Text style={styles.locationPillText}>
-                                                {profile?.location ? `${profile.location} (Tunisie)` : 'Non assigné'}
+                                                {profile?.location || location ? `${profile?.location || location} (Tunisie)` : 'Non assigné'}
                                             </Text>
                                         </View>
                                     </View>
@@ -327,10 +420,13 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
                                     </Text>
                                     <TextInput
                                         style={styles.input}
-                                        value={form.full_name || ''}
+                                        value={form.full_name !== undefined ? form.full_name : fullName}
                                         placeholder="Ex: Dr. Ahmed Ben Salem"
                                         placeholderTextColor={TOKENS.textSubtle}
-                                        onChangeText={(text) => setForm((prev) => ({ ...prev, full_name: text }))}
+                                        onChangeText={(text) => {
+                                            setFullName(text);
+                                            setForm((prev) => ({ ...prev, full_name: text }));
+                                        }}
                                     />
                                 </View>
 
@@ -341,10 +437,13 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
                                     </Text>
                                     <TextInput
                                         style={styles.input}
-                                        value={form.role || ''}
+                                        value={form.role !== undefined ? form.role : role}
                                         placeholder="Ex: Ingénieur Agronome / Resp. R&D"
                                         placeholderTextColor={TOKENS.textSubtle}
-                                        onChangeText={(text) => setForm((prev) => ({ ...prev, role: text }))}
+                                        onChangeText={(text) => {
+                                            setRole(text);
+                                            setForm((prev) => ({ ...prev, role: text }));
+                                        }}
                                     />
                                 </View>
 
@@ -353,10 +452,13 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
                                     <Text style={styles.inputLabel}>Organisation / Laboratoire</Text>
                                     <TextInput
                                         style={styles.input}
-                                        value={form.organization || ''}
+                                        value={form.organization !== undefined ? form.organization : organization}
                                         placeholder="Ex: CyberCortex ERP - Ferme Expérimentale"
                                         placeholderTextColor={TOKENS.textSubtle}
-                                        onChangeText={(text) => setForm((prev) => ({ ...prev, organization: text }))}
+                                        onChangeText={(text) => {
+                                            setOrganization(text);
+                                            setForm((prev) => ({ ...prev, organization: text }));
+                                        }}
                                     />
                                 </View>
 
@@ -367,12 +469,15 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
                                     </Text>
                                     <TextInput
                                         style={styles.input}
-                                        value={form.email || ''}
+                                        value={form.email !== undefined ? form.email : email}
                                         placeholder="chercheur@smartagri.tn"
                                         placeholderTextColor={TOKENS.textSubtle}
                                         keyboardType="email-address"
                                         autoCapitalize="none"
-                                        onChangeText={(text) => setForm((prev) => ({ ...prev, email: text }))}
+                                        onChangeText={(text) => {
+                                            setEmail(text);
+                                            setForm((prev) => ({ ...prev, email: text }));
+                                        }}
                                     />
                                 </View>
 
@@ -381,11 +486,14 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
                                     <Text style={styles.inputLabel}>Numéro de Téléphone</Text>
                                     <TextInput
                                         style={styles.input}
-                                        value={form.phone || ''}
+                                        value={form.phone !== undefined ? form.phone : phone}
                                         placeholder="+216 98 000 000"
                                         placeholderTextColor={TOKENS.textSubtle}
                                         keyboardType="phone-pad"
-                                        onChangeText={(text) => setForm((prev) => ({ ...prev, phone: text }))}
+                                        onChangeText={(text) => {
+                                            setPhone(text);
+                                            setForm((prev) => ({ ...prev, phone: text }));
+                                        }}
                                     />
                                 </View>
 
@@ -403,11 +511,11 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
                                             <Text
                                                 style={[
                                                     styles.triggerValueText,
-                                                    !form.location && styles.triggerPlaceholder,
+                                                    !(form.location || location) && styles.triggerPlaceholder,
                                                 ]}
                                             >
-                                                {form.location
-                                                    ? `${form.location}, Tunisie`
+                                                {form.location || location
+                                                    ? `${form.location || location}, Tunisie`
                                                     : 'Sélectionner parmi les 24 gouvernorats'}
                                             </Text>
                                         </View>
@@ -440,6 +548,76 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
                             </View>
                         </View>
                     )}
+                </View>
+
+                {/* --- MODULE PASSERELLE E-MAIL SMTP (CYBER-BRAIN) --- */}
+                <View style={styles.smtpCard}>
+                    <View style={styles.smtpHeaderRow}>
+                        <View style={styles.smtpIconBadge}>
+                            <Text style={styles.smtpIconText}>📬</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.smtpTitle}>Passerelle d'Alertes E-mail (SMTP)</Text>
+                            <Text style={styles.smtpSubtitle}>Moteur Cyber-Brain • Notifications temps-réel des urgences</Text>
+                        </View>
+                        <View style={styles.smtpStatusBadge}>
+                            <View style={styles.smtpStatusDot} />
+                            <Text style={styles.smtpStatusText}>DISPATCHER ACTIF</Text>
+                        </View>
+                    </View>
+
+                    <Text style={styles.smtpDescription}>
+                        En cas de stress thermique (canicule/gel), de sécheresse racinaire ou de déficit d'humidité, un rapport agronomique détaillé au format HTML industriel est expédié instantanément à l'adresse d'astreinte :
+                    </Text>
+
+                    <View style={styles.smtpRecipientRow}>
+                        <Text style={styles.smtpRecipientLabel}>Destinataire d'astreinte :</Text>
+                        <View style={styles.smtpRecipientPill}>
+                            <Text style={styles.smtpRecipientIcon}>✉</Text>
+                            <Text style={styles.smtpRecipientText}>{profile?.email || email || 'Non configuré'}</Text>
+                        </View>
+                    </View>
+
+                    {emailTestResult && (
+                        <View style={[
+                            styles.smtpFeedbackBox,
+                            emailTestResult.type === 'success' ? styles.smtpFeedbackSuccess : styles.smtpFeedbackError
+                        ]}>
+                            <Text style={[
+                                styles.smtpFeedbackText,
+                                emailTestResult.type === 'success' ? styles.smtpFeedbackTextSuccess : styles.smtpFeedbackTextError
+                            ]}>
+                                {emailTestResult.message}
+                            </Text>
+                            {Boolean(emailTestResult.previewUrl) && (
+                                <Pressable 
+                                    onPress={() => {
+                                        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                                            window.open(emailTestResult.previewUrl, '_blank');
+                                        }
+                                    }}
+                                    style={styles.smtpPreviewLink}
+                                >
+                                    <Text style={styles.smtpPreviewLinkText}>🔗 Prévisualiser l'e-mail Ethereal ➔</Text>
+                                </Pressable>
+                            )}
+                        </View>
+                    )}
+
+                    <Pressable
+                        style={[styles.smtpTestButton, isTestingEmail && styles.smtpTestButtonDisabled]}
+                        onPress={handleTestEmail}
+                        disabled={isTestingEmail}
+                    >
+                        {isTestingEmail ? (
+                            <View style={styles.smtpButtonLoadingRow}>
+                                <ActivityIndicator size="small" color="#ffffff" />
+                                <Text style={styles.smtpTestButtonText}>Test SMTP en cours...</Text>
+                            </View>
+                        ) : (
+                            <Text style={styles.smtpTestButtonText}>🚀 Tester l'envoi d'alerte e-mail</Text>
+                        )}
+                    </Pressable>
                 </View>
 
                 {/* --- MENU DES PARAMÈTRES AVANCÉS --- */}
@@ -481,6 +659,10 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
                 onRequestClose={() => setIsPickerVisible(false)}
             >
                 <View style={styles.modalOverlay}>
+                    <Pressable
+                        style={StyleSheet.absoluteFill}
+                        onPress={() => setIsPickerVisible(false)}
+                    />
                     <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
                             <View>
@@ -1098,5 +1280,176 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: TOKENS.textMuted,
         textAlign: 'center',
+    },
+    // STYLES PASSERELLE SMTP
+    smtpCard: {
+        backgroundColor: TOKENS.surface,
+        borderRadius: TOKENS.radiusLg,
+        borderWidth: 1,
+        borderColor: 'rgba(39, 174, 96, 0.25)',
+        padding: 20,
+        marginBottom: 20,
+        ...Platform.select({
+            web: {
+                boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+            },
+            default: {
+                elevation: 3,
+            },
+        }),
+    },
+    smtpHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        marginBottom: 14,
+    },
+    smtpIconBadge: {
+        width: 40,
+        height: 40,
+        borderRadius: 10,
+        backgroundColor: 'rgba(39, 174, 96, 0.15)',
+        borderWidth: 1,
+        borderColor: 'rgba(39, 174, 96, 0.3)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    smtpIconText: {
+        fontSize: 20,
+    },
+    smtpTitle: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: TOKENS.text,
+    },
+    smtpSubtitle: {
+        fontSize: 12,
+        color: TOKENS.textMuted,
+        marginTop: 2,
+    },
+    smtpStatusBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: 'rgba(39, 174, 96, 0.12)',
+        paddingVertical: 5,
+        paddingHorizontal: 9,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: 'rgba(39, 174, 96, 0.3)',
+    },
+    smtpStatusDot: {
+        width: 7,
+        height: 7,
+        borderRadius: 4,
+        backgroundColor: TOKENS.primaryDeep,
+    },
+    smtpStatusText: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: TOKENS.primaryDeep,
+        letterSpacing: 0.5,
+    },
+    smtpDescription: {
+        fontSize: 13,
+        color: TOKENS.textSubtle,
+        lineHeight: 19,
+        marginBottom: 14,
+    },
+    smtpRecipientRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 8,
+        marginBottom: 16,
+    },
+    smtpRecipientLabel: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: TOKENS.textMuted,
+    },
+    smtpRecipientPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: TOKENS.surfaceLighter,
+        paddingVertical: 5,
+        paddingHorizontal: 10,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: TOKENS.border,
+    },
+    smtpRecipientIcon: {
+        fontSize: 12,
+        color: TOKENS.primary,
+    },
+    smtpRecipientText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: TOKENS.text,
+    },
+    smtpFeedbackBox: {
+        padding: 12,
+        borderRadius: 8,
+        marginBottom: 14,
+        borderWidth: 1,
+    },
+    smtpFeedbackSuccess: {
+        backgroundColor: 'rgba(39, 174, 96, 0.12)',
+        borderColor: 'rgba(39, 174, 96, 0.35)',
+    },
+    smtpFeedbackError: {
+        backgroundColor: 'rgba(231, 76, 60, 0.12)',
+        borderColor: 'rgba(231, 76, 60, 0.35)',
+    },
+    smtpFeedbackText: {
+        fontSize: 13,
+        lineHeight: 18,
+    },
+    smtpFeedbackTextSuccess: {
+        color: '#27ae60',
+        fontWeight: '600',
+    },
+    smtpFeedbackTextError: {
+        color: '#e74c3c',
+        fontWeight: '600',
+    },
+    smtpPreviewLink: {
+        marginTop: 8,
+        paddingTop: 8,
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(39, 174, 96, 0.2)',
+    },
+    smtpPreviewLinkText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: TOKENS.primaryDeep,
+        textDecorationLine: 'underline',
+    },
+    smtpTestButton: {
+        backgroundColor: TOKENS.primaryDeep,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderRadius: TOKENS.radiusMd,
+        alignItems: 'center',
+        justifyContent: 'center',
+        ...Platform.select({
+            web: {
+                cursor: 'pointer',
+            },
+        }),
+    },
+    smtpTestButtonDisabled: {
+        opacity: 0.65,
+    },
+    smtpButtonLoadingRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    smtpTestButtonText: {
+        color: '#ffffff',
+        fontSize: 14,
+        fontWeight: '700',
     },
 });

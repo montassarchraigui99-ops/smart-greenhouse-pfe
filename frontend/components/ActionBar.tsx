@@ -6,9 +6,11 @@
 
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Vibration, ActivityIndicator, Platform, Modal, TextInput } from 'react-native';
+import { useRouter } from 'expo-router';
 import { API_BASE_URL } from '../services/api';
 
 export default function ActionBar() {
+    const router = useRouter();
     const [isSimulating, setIsSimulating] = useState(false);
     const [isSuccess, setIsSuccess] = useState(false);
     const [modalVisible, setModalVisible] = useState(false);
@@ -48,24 +50,54 @@ export default function ActionBar() {
             }
 
             // Exécution massive au Cyber-Brain via un seul appel API
-            await fetch(`${API_BASE_URL}/telemetry/simulate`, {
+            const response = await fetch(`${API_BASE_URL}/telemetry/simulate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
 
+            const data = await response.json();
+
             setModalVisible(false);
+            setTemp('');
+            setHumidity('');
+            setLight('');
+            setWater('');
+
             setIsSuccess(true);
-            setTimeout(() => setIsSuccess(false), 3000);
+            setTimeout(() => setIsSuccess(false), 4000);
+
+            const simuAlert = data.simulation_alert;
+            const title = simuAlert?.title || "Scénario Multi-Facteurs Exécuté";
+            const severity = (simuAlert?.severity || 'info').toUpperCase();
 
             if (Platform.OS === 'web') {
-                window.alert(`🚨 Le Cyber-Brain analyse actuellement l'environnement injecté ! \n(Rendez-vous dans le Journal des Alertes)`);
+                const confirmed = window.confirm(
+                    `🧪 SIMULATION CYBER-BRAIN ENREGISTRÉE !\n\n` +
+                    `Diagnostic : ${title}\n` +
+                    `Sévérité : ${severity}\n\n` +
+                    `Voulez-vous ouvrir immédiatement le Journal des Alertes (partie Simulations) pour examiner le rapport complet et les actions de régulation ?`
+                );
+                if (confirmed) {
+                    router.push('/alerts?tab=Simulations');
+                }
             } else {
-                Alert.alert("🚨 Scénario Multi-Facteurs Injecté", "Toutes les conditions ont été poussées au Cyber-Brain");
+                Alert.alert(
+                    "🧪 Scénario Simulé avec Succès",
+                    `${title} [${severity}]\n\nConsultez le Journal des Alertes pour les détails.`,
+                    [
+                        { text: "Rester ici", style: "cancel" },
+                        {
+                            text: "Voir les Simulations",
+                            onPress: () => router.push('/alerts?tab=Simulations')
+                        }
+                    ]
+                );
             }
         } catch (e) {
             console.error("[ActionBar] Échec de la simulation :", e);
             if (Platform.OS === 'web') window.alert("Erreur Réseau lors de la simulation.");
+            else Alert.alert("Erreur", "Impossible de joindre le serveur de simulation.");
         } finally {
             setIsSimulating(false);
         }

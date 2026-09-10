@@ -138,15 +138,30 @@ function initDB() {
         console.warn('[DB-WARN] Vérification des colonnes:', migErr.message);
     }
 
-    // Auto-Seeding du Cyber-Brain & Profil
+    // Auto-Seeding du Cyber-Brain & Profil & Alertes
     try {
         const countQuery = db.prepare('SELECT COUNT(*) AS count FROM cyber_brain_rules').get();
         if (countQuery && countQuery.count === 0) {
-            db.prepare(`
+            const insertRule = db.prepare(`
                 INSERT INTO cyber_brain_rules (condition_target, threshold, operator, action_key) 
-                VALUES ('ambient_temperature', 30, '<', 'water_pump')
-            `).run();
-            console.log('[DB-SEEDER] Règle par défaut injectée dans le Cyber-Brain.');
+                VALUES (?, ?, ?, ?)
+            `);
+            insertRule.run('ambient_temperature', 30, '>=', 'ventilation');
+            insertRule.run('air_humidity', 30, '<=', 'misting_system');
+            insertRule.run('photoperiod', 12, '<=', 'grow_lights');
+            insertRule.run('water_consumption', 15, '<=', 'water_pump');
+            console.log('[DB-SEEDER] Règles multi-critères par défaut injectées dans le Cyber-Brain.');
+        }
+
+        const alertCount = db.prepare('SELECT COUNT(*) AS count FROM alerts_log').get();
+        if (alertCount && alertCount.count === 0) {
+            const insertAlert = db.prepare(`
+                INSERT INTO alerts_log (title, message, severity, tag, is_read, timestamp)
+                VALUES (?, ?, ?, ?, ?, datetime('now'))
+            `);
+            insertAlert.run('Alerte Chute de Pression', 'Le circuit de ventilation principal semble obstrué.', 'critique', 'SYS-VENT', 0);
+            insertAlert.run('Simulation Cyber-Brain : Calibration Initiale', 'Test de résilience et étalonnage des algorithmes prédictifs achevé avec succès.', 'warning', 'SIMU-INIT', 0);
+            console.log('[DB-SEEDER] Alertes de référence (Production & Simulation) injectées.');
         }
 
         const profileQuery = db.prepare('SELECT COUNT(*) AS count FROM user_profiles').get();
