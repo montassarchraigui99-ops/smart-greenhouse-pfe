@@ -30,6 +30,9 @@ const { initDB, startDataPurgeTask } = require('./database');
 
 // Importation des routes et services
 const apiRoutes = require('./routes/api');
+const greenhousesRoutes = require('./routes/greenhouses');
+const copilotRoutes = require('./routes/copilot');
+const infrastructureRoutes = require('./routes/infrastructure');
 const { initMqttService } = require('./services/mqttService');
 
 const app = express();
@@ -38,7 +41,10 @@ const PORT = 5000;
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
-// Nouvelles routes globales unifiées (Incluant /api/telemetry, /api/actuators, /api/alerts)
+// Nouvelles routes globales unifiées (Incluant /api/telemetry, /api/actuators, /api/alerts, /api/copilot, /api/greenhouses)
+app.use('/api/greenhouses', greenhousesRoutes);
+app.use('/api/copilot', copilotRoutes);
+app.use('/api/infrastructure', infrastructureRoutes);
 app.use('/api', apiRoutes);
 
 // Générateur automatique de télémétrie en direct (Synchronisation temps réel 3s)
@@ -52,15 +58,21 @@ function startLiveTelemetrySimulation() {
 
             const temp = parseFloat((23.8 + Math.sin(timeSec / 20) * 1.5 + (Math.random() * 0.4 - 0.2)).toFixed(1));
             const hum = parseFloat((61.5 + Math.cos(timeSec / 25) * 3 + (Math.random() * 0.6 - 0.3)).toFixed(1));
+            const photo = parseFloat((16.0 + Math.sin(timeSec / 40) * 0.3 + (Math.random() * 0.1 - 0.05)).toFixed(1));
+            const water = parseFloat((4.2 + Math.cos(timeSec / 35) * 0.2 + (Math.random() * 0.1 - 0.05)).toFixed(1));
 
             const stmt = db.prepare('INSERT INTO telemetry (sensor_key, value, timestamp) VALUES (?, ?, ?)');
             stmt.run('temperature', temp, iso);
             stmt.run('ambient_temperature', temp, iso);
             stmt.run('humidity_air', hum, iso);
             stmt.run('air_humidity', hum, iso);
+            stmt.run('photoperiod', photo, iso);
+            stmt.run('water_consumption', water, iso);
 
             db.prepare('UPDATE sensors SET value = ?, updated_at = ? WHERE sensor_key IN (?, ?)').run(temp, iso, 'temperature', 'ambient_temperature');
             db.prepare('UPDATE sensors SET value = ?, updated_at = ? WHERE sensor_key IN (?, ?)').run(hum, iso, 'humidity_air', 'air_humidity');
+            db.prepare('UPDATE sensors SET value = ?, updated_at = ? WHERE sensor_key = ?').run(photo, iso, 'photoperiod');
+            db.prepare('UPDATE sensors SET value = ?, updated_at = ? WHERE sensor_key = ?').run(water, iso, 'water_consumption');
         } catch (err) {
             // Silencieux si micro-conflit
         }

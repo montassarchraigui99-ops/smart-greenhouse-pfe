@@ -7,29 +7,178 @@
 const express = require('express');
 const router = express.Router();
 const { db } = require('../database');
-const { evaluateCyberBrainRules } = require('../services/mqttService');
+const { evaluateCyberBrainRules, publishActuatorCommand } = require('../services/mqttService');
 const { dispatchAlertMailSafely, sendTestNotification } = require('../services/mailService');
+
+// Infrastructure & Administrative Operations
+router.use('/infrastructure', require('./infrastructure'));
+
+// ==========================================
+// 0. GREENHOUSES (Architecture Multi-Serre One-to-Many)
+// ==========================================
+router.get('/greenhouses', (req, res) => {
+    try {
+        const greenhouses = db.prepare('SELECT * FROM greenhouses ORDER BY id ASC').all();
+
+        const enriched = greenhouses.map(gh => {
+            const lastTemp = db.prepare(`
+                SELECT value, timestamp FROM telemetry 
+                WHERE greenhouse_id = ? AND sensor_key IN ('ambient_temperature', 'temperature')
+                ORDER BY timestamp DESC LIMIT 1
+            `).get(gh.id);
+
+            const lastHum = db.prepare(`
+                SELECT value, timestamp FROM telemetry 
+                WHERE greenhouse_id = ? AND sensor_key IN ('air_humidity', 'humidity_air')
+                ORDER BY timestamp DESC LIMIT 1
+            `).get(gh.id);
+
+            const alertStats = db.prepare(`
+                SELECT 
+                    COUNT(*) as total_alerts,
+                    SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) as unread_alerts,
+                    SUM(CASE WHEN severity = 'critique' AND is_read = 0 THEN 1 ELSE 0 END) as critical_alerts
+                FROM alerts_log 
+                WHERE greenhouse_id = ?
+            `).get(gh.id);
+
+            return {
+                ...gh,
+                live_temperature: lastTemp ? lastTemp.value : (gh.target_temp || 24.0),
+                live_humidity: lastHum ? lastHum.value : (gh.target_humidity || 60.0),
+                last_updated: lastTemp ? lastTemp.timestamp : gh.created_at,
+                unread_alerts_count: alertStats ? (alertStats.unread_alerts || 0) : 0,
+                critical_alerts_count: alertStats ? (alertStats.critical_alerts || 0) : 0,
+                total_alerts_count: alertStats ? (alertStats.total_alerts || 0) : 0,
+            };
+        });
+
+        res.json({
+            status: 'success',
+            count: enriched.length,
+            data: enriched
+        });
+    } catch (error) {
+        console.error('[API-ERROR] GET /greenhouses :', error.message);
+        res.status(500).json({ status: 'error', message: 'Erreur lors de la récupération des serres' });
+    }
+});
+
+router.get('/greenhouses/:id', (req, res) => {
+    try {
+        const gh = db.prepare('SELECT * FROM greenhouses WHERE id = ?').get(req.params.id);
+        if (!gh) {
+            return res.status(404).json({ status: 'error', message: 'Serre non trouvée' });
+        }
+
+        const lastTemp = db.prepare(`
+            SELECT value, timestamp FROM telemetry 
+            WHERE greenhouse_id = ? AND sensor_key IN ('ambient_temperature', 'temperature')
+            ORDER BY timestamp DESC LIMIT 1
+        `).get(gh.id);
+
+        const lastHum = db.prepare(`
+            SELECT value, timestamp FROM telemetry 
+            WHERE greenhouse_id = ? AND sensor_key IN ('air_humidity', 'humidity_air')
+            ORDER BY timestamp DESC LIMIT 1
+        `).get(gh.id);
+
+        const alertStats = db.prepare(`
+            SELECT 
+                COUNT(*) as total_alerts,
+                SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) as unread_alerts,
+                SUM(CASE WHEN severity = 'critique' AND is_read = 0 THEN 1 ELSE 0 END) as critical_alerts
+            FROM alerts_log 
+            WHERE greenhouse_id = ?
+        `).get(gh.id);
+
+        res.json({
+            status: 'success',
+            data: {
+                ...gh,
+                live_temperature: lastTemp ? lastTemp.value : gh.target_temp,
+                live_humidity: lastHum ? lastHum.value : gh.target_humidity,
+                last_updated: lastTemp ? lastTemp.timestamp : gh.created_at,
+                unread_alerts_count: alertStats ? (alertStats.unread_alerts || 0) : 0,
+                critical_alerts_count: alertStats ? (alertStats.critical_alerts || 0) : 0,
+                total_alerts_count: alertStats ? (alertStats.total_alerts || 0) : 0
+            }
+        });
+    } catch (error) {
+        console.error('[API-ERROR] GET /greenhouses/:id :', error.message);
+        res.status(500).json({ status: 'error', message: 'Erreur interne' });
+    }
+});
+
+router.post('/greenhouses', (req, res) => {
+    try {
+        const { id, name, location, crop_type, target_temp, target_humidity, status } = req.body;
+        if (!name) {
+            return res.status(400).json({ status: 'error', message: 'Nom de la serre requis' });
+        }
+        const ghId = id || `gh-${Date.now().toString().slice(-4)}`;
+        db.prepare(`
+            INSERT INTO greenhouses (id, user_id, name, status, location, crop_type, target_temp, target_humidity)
+            VALUES (?, 1, ?, ?, ?, ?, ?, ?)
+        `).run(
+            ghId,
+            name,
+            status || 'OPTIMAL',
+            location || 'Site Principal',
+            crop_type || 'Culture sous abri',
+            target_temp || 24.0,
+            target_humidity || 65.0
+        );
+
+        res.status(201).json({
+            status: 'success',
+            message: 'Serre créée avec succès',
+            data: { id: ghId, name, status: status || 'OPTIMAL' }
+        });
+    } catch (error) {
+        console.error('[API-ERROR] POST /greenhouses :', error.message);
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+});
+
+// ==========================================
+// 0. GET /sensors
+//    - Liste des capteurs avec clés de traduction standardisées i18n
+// ==========================================
+router.get('/sensors', (req, res) => {
+    res.json({
+        status: 'success',
+        data: [
+            { id: '1', sensor_key: 'sensor.ambient_temp', sensor_name: 'sensor.ambient_temp', name: 'sensor.ambient_temp', unit: '°C', status: 'status.optimal' },
+            { id: '2', sensor_key: 'sensor.air_humidity', sensor_name: 'sensor.air_humidity', name: 'sensor.air_humidity', unit: '%', status: 'status.optimal' },
+            { id: '3', sensor_key: 'sensor.photoperiod', sensor_name: 'sensor.photoperiod', name: 'sensor.photoperiod', unit: 'h', status: 'status.optimal' },
+            { id: '4', sensor_key: 'sensor.water_consumption', sensor_name: 'sensor.water_consumption', name: 'sensor.water_consumption', unit: 'L', status: 'status.optimal' }
+        ]
+    });
+});
 
 // ==========================================
 // 1. GET /telemetry
-//    - Télémétrie des 24 dernières heures.
-// ==========================================
-// 1. GET /telemetry
-//    - Télémétrie avec agrégation SQLite (Downsampling haute performance)
-//    - Paramètre : ?timeframe=live|24h|7d|30d (ou sensor_key)
+//    - Télémétrie multi-serre avec agrégation SQLite (Downsampling haute performance)
+//    - Paramètre : ?greenhouseId=X & ?timeframe=live|24h|7d|30d
 // ==========================================
 router.get('/telemetry', (req, res) => {
     try {
         const { sensor_key, timeframe, period, range } = req.query;
+        const greenhouseId = req.query.greenhouseId || req.query.greenhouse_id || 'gh-01';
         let data = [];
 
-        // Support des alias de capteurs
+        // Support des alias de capteurs et clés de traduction
         let matchedKeys = [sensor_key];
         if (sensor_key) {
-            if (sensor_key === 'ambient_temperature' || sensor_key === 'temperature') {
-                matchedKeys = ['ambient_temperature', 'temperature'];
-            } else if (sensor_key === 'air_humidity' || sensor_key === 'humidity_air') {
-                matchedKeys = ['air_humidity', 'humidity_air'];
+            if (sensor_key === 'ambient_temperature' || sensor_key === 'temperature' || sensor_key === 'sensor.ambient_temp') {
+                matchedKeys = ['ambient_temperature', 'temperature', 'sensor.ambient_temp'];
+            } else if (sensor_key === 'air_humidity' || sensor_key === 'humidity_air' || sensor_key === 'sensor.air_humidity') {
+                matchedKeys = ['air_humidity', 'humidity_air', 'sensor.air_humidity'];
+            } else if (sensor_key === 'photoperiod' || sensor_key === 'sensor.photoperiod') {
+                matchedKeys = ['photoperiod', 'sensor.photoperiod'];
+            } else if (sensor_key === 'water_consumption' || sensor_key === 'sensor.water_consumption') {
+                matchedKeys = ['water_consumption', 'sensor.water_consumption'];
             }
         }
 
@@ -41,46 +190,56 @@ router.get('/telemetry', (req, res) => {
 
         let query = '';
         if (tf === '7d' || tf === '7 jours') {
-            // 7 Jours : groupé par heure (strftime('%Y-%m-%d %H:00:00', timestamp)) avec AVG(value)
             query = `
                 SELECT sensor_key, ROUND(AVG(value), 1) as value, strftime('%Y-%m-%d %H:00:00', timestamp) as timestamp 
                 FROM telemetry 
-                WHERE timestamp >= datetime('now', '-7 days') ${filterKeyClause}
+                WHERE greenhouse_id = ? AND timestamp >= datetime('now', '-7 days') ${filterKeyClause}
                 GROUP BY strftime('%Y-%m-%d %H:00:00', timestamp) 
                 ORDER BY timestamp ASC
             `;
         } else if (tf === '30d' || tf === '30 jours') {
-            // 30 Jours : groupé par jour (strftime('%Y-%m-%d 00:00:00', timestamp)) avec AVG(value)
             query = `
                 SELECT sensor_key, ROUND(AVG(value), 1) as value, strftime('%Y-%m-%d 00:00:00', timestamp) as timestamp 
                 FROM telemetry 
-                WHERE timestamp >= datetime('now', '-30 days') ${filterKeyClause}
+                WHERE greenhouse_id = ? AND timestamp >= datetime('now', '-30 days') ${filterKeyClause}
                 GROUP BY strftime('%Y-%m-%d 00:00:00', timestamp) 
                 ORDER BY timestamp ASC
             `;
         } else if (tf === '24h') {
-            // 24H : groupé par heure avec AVG(value)
             query = `
                 SELECT sensor_key, ROUND(AVG(value), 1) as value, strftime('%Y-%m-%d %H:00:00', timestamp) as timestamp 
                 FROM telemetry 
-                WHERE timestamp >= datetime('now', '-24 hours') ${filterKeyClause}
+                WHERE greenhouse_id = ? AND timestamp >= datetime('now', '-24 hours') ${filterKeyClause}
                 GROUP BY strftime('%Y-%m-%d %H:00:00', timestamp) 
                 ORDER BY timestamp ASC
             `;
         } else {
-            // 'live' (En direct) : mesures brutes temps réel récentes (limité aux 30 derniers points)
+            // 'live' (En direct) : mesures brutes récentes limitées aux 30 derniers points
             query = `
                 SELECT sensor_key, value, timestamp 
                 FROM telemetry 
-                WHERE timestamp >= datetime('now', '-1 hour') ${filterKeyClause}
+                WHERE greenhouse_id = ? AND timestamp >= datetime('now', '-1 hour') ${filterKeyClause}
                 GROUP BY strftime('%Y-%m-%d %H:%M:%S', timestamp) 
                 ORDER BY timestamp DESC 
                 LIMIT 30
             `;
         }
 
+        const queryParams = sensor_key ? [greenhouseId, ...matchedKeys] : [greenhouseId];
         const stmt = db.prepare(query);
-        data = sensor_key ? stmt.all(...matchedKeys) : stmt.all();
+        data = stmt.all(...queryParams);
+
+        // Si la base est encore vide pour cette serre spécifique sur la dernière heure, tenter sans contrainte temporelle courte
+        if (data.length === 0 && (tf === 'live' || tf === 'en direct')) {
+            const fallbackStmt = db.prepare(`
+                SELECT sensor_key, value, timestamp 
+                FROM telemetry 
+                WHERE greenhouse_id = ? ${filterKeyClause}
+                ORDER BY timestamp DESC 
+                LIMIT 30
+            `);
+            data = fallbackStmt.all(...queryParams);
+        }
 
         // Pour le mode 'live', réordonner en chronologie croissante (gauche -> droite)
         if (tf === 'live' || tf === 'en direct') {
@@ -89,6 +248,7 @@ router.get('/telemetry', (req, res) => {
 
         res.json({
             status: 'success',
+            greenhouseId,
             timeframe: tf,
             count: data.length,
             data: data
@@ -101,17 +261,24 @@ router.get('/telemetry', (req, res) => {
 
 // ==========================================
 // 2. GET /actuators/logs
-//    - Dernières 50 actions de l'ERP
+//    - Dernières 50 actions de l'ERP filtrées par serre
 // ==========================================
 router.get('/actuators/logs', (req, res) => {
     try {
-        const stmt = db.prepare(`
-            SELECT actuator_key, action, trigger_source, timestamp 
+        const greenhouseId = req.query.greenhouseId || req.query.greenhouse_id;
+        let query = `
+            SELECT actuator_key, action, trigger_source, greenhouse_id, timestamp 
             FROM actuators_logs 
-            ORDER BY timestamp DESC 
-            LIMIT 50
-        `);
-        const logs = stmt.all();
+        `;
+        let params = [];
+        if (greenhouseId && greenhouseId !== 'all') {
+            query += ` WHERE greenhouse_id = ? `;
+            params.push(greenhouseId);
+        }
+        query += ` ORDER BY timestamp DESC LIMIT 50 `;
+
+        const stmt = db.prepare(query);
+        const logs = stmt.all(...params);
 
         res.json({
             status: 'success',
@@ -126,20 +293,32 @@ router.get('/actuators/logs', (req, res) => {
 
 // ==========================================
 // 2.1. POST /actuators/command
-//      - Commande manuelle d'un actionneur
+//      - Commande manuelle d'un actionneur pour une serre spécifique
 // ==========================================
 router.post('/actuators/command', (req, res) => {
     try {
         const { actuator_key, action } = req.body;
+        const greenhouseId = req.body.greenhouseId || req.body.greenhouse_id || 'gh-01';
+
         if (!actuator_key) {
             return res.status(400).json({ status: 'error', message: 'actuator_key manquant' });
         }
-        db.prepare(`
-            INSERT INTO actuators_logs (actuator_key, action, trigger_source) 
-            VALUES (?, ?, 'manual')
-        `).run(actuator_key, action || 'TOGGLE');
 
-        res.json({ status: 'success', message: `Commande reçue pour ${actuator_key}` });
+        db.prepare(`
+            INSERT INTO actuators_logs (greenhouse_id, actuator_key, action, trigger_source) 
+            VALUES (?, ?, ?, 'manual')
+        `).run(greenhouseId, actuator_key, action || 'TOGGLE');
+
+        // Publication de la commande MQTT conventionnée vers la serre cible
+        if (typeof publishActuatorCommand === 'function') {
+            publishActuatorCommand(greenhouseId, actuator_key, action || 'TOGGLE');
+        }
+
+        res.json({ 
+            status: 'success', 
+            message: `Commande envoyée à ${actuator_key} pour la serre ${greenhouseId}`,
+            greenhouseId 
+        });
     } catch (error) {
         console.error('[API-ERROR] /actuators/command :', error.message);
         res.status(500).json({ status: 'error', message: 'Erreur interne' });
@@ -148,35 +327,52 @@ router.post('/actuators/command', (req, res) => {
 
 // ==========================================
 // 3. GET /alerts
-//    - Historique des alertes du Cyber-Brain
+//    - Historique des alertes Cyber-Brain filtré par serre
 // ==========================================
 router.get('/alerts', (req, res) => {
     try {
-        const stmt = db.prepare(`
-            SELECT id, title, message, severity, tag, is_read, timestamp 
+        const greenhouseId = req.query.greenhouseId || req.query.greenhouse_id;
+        let query = `
+            SELECT id, greenhouse_id, title, message, severity, tag, is_read, timestamp 
             FROM alerts_log 
-            ORDER BY timestamp DESC 
-        `);
-        let alerts = stmt.all();
-
-        // Seeding de secours si la base est vide (Bypass SQLite read failure)
-        if (alerts.length === 0) {
-            try {
-                seedStmt.run('Alerte Chute de Pression', 'Le circuit de ventilation principal semble obstrué.', 'critique', 'SYS-VENT');
-                seedStmt.run('Simulation Cyber-Brain : Calibration Initiale', 'Test de résilience et étalonnage des algorithmes prédictifs achevé avec succès.', 'warning', 'SIMU-INIT');
-                alerts = stmt.all();
-            } catch (e) {
-                console.error('[API-ERROR] SQLite Seed failed:', e);
-            }
-
-            // Bypass absolu pour l'UI
-            if (alerts.length === 0) {
-                alerts = [
-                    { id: 998, title: 'Alerte Cyber-Brain : Pression', message: 'Le circuit de ventilation principal semble obstrué.', severity: 'critique', tag: 'SYS-VENT', is_read: 0, timestamp: new Date().toISOString() },
-                    { id: 999, title: 'Simulation Cyber-Brain : Calibration Initiale', message: 'Test de résilience de la capsule achevé.', severity: 'warning', tag: 'SIMU-SYS', is_read: 0, timestamp: new Date().toISOString() }
-                ];
-            }
+        `;
+        let params = [];
+        if (greenhouseId && greenhouseId !== 'all') {
+            query += ` WHERE greenhouse_id = ? `;
+            params.push(greenhouseId);
         }
+        query += ` ORDER BY timestamp DESC `;
+
+        const stmt = db.prepare(query);
+        let rawAlerts = stmt.all(...params);
+
+        // Normalisation dynamique vers les clés de traduction i18n
+        const alerts = rawAlerts.map(a => {
+            let standardKey = a.title;
+            if (a.title.includes('Chute de Pression') || a.title === 'Alerte Chute de Pression') {
+                standardKey = 'alert.pressure_drop';
+            } else if (a.title.includes('Calibration') || a.title.includes('Calibration Initiale')) {
+                standardKey = 'alert.simu_calibration';
+            } else if (a.title.includes('Température Élevée') || a.title.includes('Canicule') || a.title.includes('Stress Thermique')) {
+                standardKey = 'alert.temp_high';
+            } else if (a.title.includes('Hydrique') || a.title.includes('Sécheresse')) {
+                standardKey = 'alert.water_stress';
+            } else if (a.title.includes('Thermo-Hydrique')) {
+                standardKey = 'alert.thermo_hydric';
+            } else if (a.title.includes('Déficit Hygrométrique')) {
+                standardKey = 'alert.hygro_deficit';
+            } else if (a.title.includes('Pénurie d\'Irrigation') || a.title.includes('Pénurie')) {
+                standardKey = 'alert.irrigation_shortage';
+            } else if (a.title.includes('Scénario Personnalisé')) {
+                standardKey = 'alert.simu_scenario';
+            }
+
+            return {
+                ...a,
+                title: standardKey,
+                title_key: standardKey
+            };
+        });
 
         res.json({
             status: 'success',
@@ -229,6 +425,7 @@ router.get('/health', (req, res) => {
 router.post('/telemetry/simulate', (req, res) => {
     try {
         const payload = req.body; // ex: { ambient_temperature: 30, air_humidity: 10, photoperiod: 10, water_consumption: 8 }
+        const greenhouseId = req.body.greenhouseId || req.body.greenhouse_id || 'gh-01';
 
         if (!payload || typeof payload !== 'object' || Object.keys(payload).length === 0) {
             return res.status(400).json({ status: 'error', message: 'Payload invalide ou vide' });
@@ -249,13 +446,13 @@ router.post('/telemetry/simulate', (req, res) => {
         };
 
         const ensureSensorStmt = db.prepare(`
-            INSERT OR IGNORE INTO sensors (sensor_key, name, value, unit, status)
+            INSERT OR IGNORE INTO sensors (id, sensor_key, name, unit, status)
             VALUES (?, ?, ?, ?, 'ONLINE')
         `);
 
         const insertTelemetryStmt = db.prepare(`
-            INSERT INTO telemetry (sensor_key, value)
-            VALUES (@sensor_key, @value)
+            INSERT INTO telemetry (greenhouse_id, sensor_key, value)
+            VALUES (?, ?, ?)
         `);
 
         // Extraire les valeurs normalisées
@@ -267,10 +464,10 @@ router.post('/telemetry/simulate', (req, res) => {
         for (const [key, val] of Object.entries(payload)) {
             if (typeof val === 'number') {
                 const meta = sensorMetadata[key] || { name: key, unit: '' };
-                ensureSensorStmt.run(key, meta.name, val, meta.unit);
+                ensureSensorStmt.run(`S_${key}`, key, meta.name, meta.unit);
 
                 try {
-                    insertTelemetryStmt.run({ sensor_key: key, value: val });
+                    insertTelemetryStmt.run(greenhouseId, key, val);
                 } catch (tErr) {
                     console.warn(`[SIMU-WARN] Telemetry insert for ${key}:`, tErr.message);
                 }
@@ -391,25 +588,25 @@ router.post('/telemetry/simulate', (req, res) => {
         if (maxSeverityLevel === 3) severity = 'critique';
         else if (maxSeverityLevel === 2) severity = 'warning';
 
-        // Tag et Titre spécifiques selon la nature dominante du scénario
+        // Tag et Titre spécifiques standardisés en clés de traduction i18n
         let tag = 'SIMU-SCENARIO';
-        let title = 'Simulation Cyber-Brain : Scénario Personnalisé';
+        let title = 'alert.simu_scenario';
 
         if (humVal !== null && humVal <= 20 && waterVal !== null && waterVal <= 20) {
             tag = 'SIMU-HYDR';
-            title = 'Simulation Cyber-Brain : Stress Hydrique & Sécheresse Critique';
+            title = 'alert.water_stress';
         } else if (tempVal !== null && tempVal >= 30 && humVal !== null && humVal <= 30) {
             tag = 'SIMU-CLIM';
-            title = 'Simulation Cyber-Brain : Stress Thermo-Hydrique Combiné';
+            title = 'alert.thermo_hydric';
         } else if (tempVal !== null && tempVal >= 32) {
             tag = 'SIMU-TEMP';
-            title = 'Simulation Cyber-Brain : Alerte Canicule & Stress Thermique';
+            title = 'alert.heatwave';
         } else if (humVal !== null && humVal <= 25) {
             tag = 'SIMU-HYDR';
-            title = 'Simulation Cyber-Brain : Alerte Déficit Hygrométrique Sévère';
+            title = 'alert.hygro_deficit';
         } else if (waterVal !== null && waterVal <= 15) {
             tag = 'SIMU-EAU';
-            title = 'Simulation Cyber-Brain : Alerte Pénurie d\'Irrigation';
+            title = 'alert.irrigation_shortage';
         }
 
         // Résumé compact des paramètres
@@ -421,29 +618,30 @@ router.post('/telemetry/simulate', (req, res) => {
 
         const message = `[Paramètres Injectés : ${paramSummary.join(' | ')}]\nDiagnostic IA : ${diagnostics.join('. ')}.\nActions engagées : ${actions.join(', ') || 'Aucune action requise (conditions optimales)'}.`;
 
-        // 4. Enregistrement direct dans alerts_log
+        // 4. Enregistrement direct dans alerts_log avec greenhouse_id
         const alertStmt = db.prepare(`
-            INSERT INTO alerts_log (title, message, severity, tag, is_read, timestamp)
-            VALUES (?, ?, ?, ?, 0, datetime('now'))
+            INSERT INTO alerts_log (greenhouse_id, title, message, severity, tag, is_read, timestamp)
+            VALUES (?, ?, ?, ?, ?, 0, datetime('now'))
         `);
-        const alertInfo = alertStmt.run(title, message, severity, tag);
+        const alertInfo = alertStmt.run(greenhouseId, title, message, severity, tag);
 
-        // 5. Enregistrement des commandes actionneurs dans actuators_logs
+        // 5. Enregistrement des commandes actionneurs dans actuators_logs avec greenhouse_id
         const logActuatorStmt = db.prepare(`
-            INSERT INTO actuators_logs (actuator_key, action, trigger_source)
-            VALUES (?, ?, 'simulation')
+            INSERT INTO actuators_logs (greenhouse_id, actuator_key, action, trigger_source)
+            VALUES (?, ?, ?, 'simulation')
         `);
         const uniqueActuators = new Map();
         for (const act of triggeredActuators) {
             uniqueActuators.set(act.key, act.action);
         }
         for (const [key, action] of uniqueActuators.entries()) {
-            logActuatorStmt.run(key, action);
+            logActuatorStmt.run(greenhouseId, key, action);
         }
 
         // 5b. Dispatch automatisé d'alerte e-mail (asynchrone et non-bloquant)
         if (severity === 'critique' || severity === 'warning') {
             dispatchAlertMailSafely({
+                greenhouse_id: greenhouseId,
                 title,
                 message,
                 severity,
@@ -453,18 +651,18 @@ router.post('/telemetry/simulate', (req, res) => {
             });
         }
 
-        // 6. Exécution des règles du Cyber-Brain stockées en BDD
+        // 6. Exécution des règles du Cyber-Brain stockées en BDD filtrées par serre
         for (const [sensor_key, value] of Object.entries(payload)) {
             if (typeof value === 'number') {
                 try {
-                    evaluateCyberBrainRules(sensor_key, value, true);
+                    evaluateCyberBrainRules(greenhouseId, sensor_key, value, true);
                 } catch (e) {
                     console.warn('[SIMU-RULE-WARN]', e.message);
                 }
             }
         }
 
-        console.log(`[API-SIMULATION] ✅ Scénario simulé enregistré avec succès (Alert ID: ${alertInfo.lastInsertRowid}, Tag: ${tag})`);
+        console.log(`[API-SIMULATION] ✅ Scénario simulé pour [${greenhouseId}] enregistré avec succès (Alert ID: ${alertInfo.lastInsertRowid}, Tag: ${tag})`);
 
         res.json({
             status: 'success',
@@ -526,7 +724,7 @@ const saveProfileHandler = (req, res) => {
     console.log('[API-PROFILE] Sauvegarde demandée avec payload :', req.body);
 
     try {
-        const { full_name, email, phone, location, role, organization } = req.body || {};
+        const { full_name, email, phone, location, role, organization, preferred_language } = req.body || {};
 
         let existing = db.prepare('SELECT * FROM user_profiles WHERE id = 1').get() 
                     || db.prepare('SELECT * FROM user_profiles LIMIT 1').get();
@@ -534,8 +732,8 @@ const saveProfileHandler = (req, res) => {
         if (!existing) {
             // Insertion sécurisée si la base est vierge
             const insertStmt = db.prepare(`
-                INSERT INTO user_profiles (id, full_name, email, phone, location, role, organization)
-                VALUES (1, ?, ?, ?, ?, ?, ?)
+                INSERT INTO user_profiles (id, full_name, email, phone, location, role, organization, preferred_language)
+                VALUES (1, ?, ?, ?, ?, ?, ?, ?)
             `);
             insertStmt.run(
                 full_name || 'Ahmed Ben Salem',
@@ -543,7 +741,8 @@ const saveProfileHandler = (req, res) => {
                 phone || '+216 98 000 000',
                 location || 'Tunis',
                 role || 'Ingénieur Agronome / Resp. R&D',
-                organization || 'CyberCortex ERP'
+                organization || 'CyberCortex ERP',
+                preferred_language || 'fr'
             );
         } else {
             // UPDATE paramétré strict de better-sqlite3 sur l'ID 1
@@ -555,6 +754,7 @@ const saveProfileHandler = (req, res) => {
                     location = ?,
                     role = ?,
                     organization = COALESCE(?, organization),
+                    preferred_language = COALESCE(?, preferred_language),
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = 1
             `);
@@ -564,7 +764,8 @@ const saveProfileHandler = (req, res) => {
                 phone !== undefined && phone !== null ? String(phone).trim() : existing.phone,
                 location !== undefined && location !== null ? String(location).trim() : existing.location,
                 role !== undefined && role !== null ? String(role).trim() : existing.role,
-                organization !== undefined && organization !== null ? String(organization).trim() : existing.organization
+                organization !== undefined && organization !== null ? String(organization).trim() : existing.organization,
+                preferred_language !== undefined && preferred_language !== null ? String(preferred_language).trim() : (existing.preferred_language || 'fr')
             );
         }
 
@@ -653,60 +854,120 @@ router.post('/user/register', express.json(), (req, res) => {
 
 // ==========================================
 // 8. POST /chat
-//    - Copilote IA CyberCortex (Google Gemini API + Grounding Télémétrie)
+//    - Copilote IA CyberCortex (Google Gemini API + Grounding Télémétrie Multi-Serre)
 // ==========================================
 router.post('/chat', async (req, res) => {
     try {
         const { message, history } = req.body;
+        const greenhouseId = req.body.greenhouseId || req.body.greenhouse_id || 'gh-01';
 
         if (!message || typeof message !== 'string' || message.trim() === '') {
             return res.status(400).json({ status: 'error', message: 'Message requis' });
         }
 
-        // 1. Extraction en direct des métriques réelles depuis SQLite (Grounding)
-        const sensors = db.prepare('SELECT sensor_key, name, value, unit FROM sensors').all();
-        const alerts = db.prepare('SELECT id, title, severity, tag, timestamp FROM alerts_log ORDER BY timestamp DESC LIMIT 3').all();
-        const actuators = db.prepare('SELECT actuator_key, action, trigger_source, timestamp FROM actuators_logs ORDER BY timestamp DESC LIMIT 4').all();
+        // 1. Récupération des informations de la serre active
+        const gh = db.prepare('SELECT * FROM greenhouses WHERE id = ?').get(greenhouseId) || {
+            id: greenhouseId,
+            name: greenhouseId === 'gh-02' ? 'Serre Hydroponique Bêta (Aéroponie)' : (greenhouseId === 'gh-03' ? 'Serre Tropicale Gamma (Vertical)' : 'Serre Maraîchère Alpha (NFT)'),
+            status: 'OPTIMAL',
+            location: 'Site Principal',
+            crop_type: 'Cultures Maraîchères',
+            target_temp: 24.0,
+            target_humidity: 65.0
+        };
 
-        const sensorSummary = sensors.length > 0
-            ? sensors.map(s => `- ${s.name} (${s.sensor_key}) : ${s.value} ${s.unit}`).join('\n')
-            : '- Température : 24.2 °C\n- Humidité de l\'air : 63.5 %\n- Photopériode : 14.0 h\n- Consommation d\'eau : 45.0 L';
+        const active_greenhouse_name = gh.name;
+        const active_greenhouse_id = gh.id;
+
+        // 2. Extraction en direct des métriques réelles pour la serre active (Grounding étanche)
+        const recentTelemetry = db.prepare(`
+            SELECT t.sensor_key, t.value, s.name, s.unit, t.timestamp 
+            FROM telemetry t
+            LEFT JOIN sensors s ON t.sensor_key = s.sensor_key
+            WHERE t.greenhouse_id = ?
+            GROUP BY t.sensor_key
+            ORDER BY t.timestamp DESC
+        `).all(active_greenhouse_id);
+
+        const alerts = db.prepare(`
+            SELECT id, title, severity, tag, timestamp 
+            FROM alerts_log 
+            WHERE greenhouse_id = ?
+            ORDER BY timestamp DESC LIMIT 4
+        `).all(active_greenhouse_id);
+
+        const actuators = db.prepare(`
+            SELECT actuator_key, action, trigger_source, timestamp 
+            FROM actuators_logs 
+            WHERE greenhouse_id = ?
+            ORDER BY timestamp DESC LIMIT 4
+        `).all(active_greenhouse_id);
+
+        const sensorSummary = recentTelemetry.length > 0
+            ? recentTelemetry.map(s => `- ${s.name || s.sensor_key} (${s.sensor_key}) : ${s.value} ${s.unit || ''}`).join('\n')
+            : `- Température ambiante : ${gh.target_temp || 24.0} °C\n- Humidité de l'air : ${gh.target_humidity || 65.0} %\n- Photopériode : 14.0 h\n- Consommation d'eau : 35.0 L`;
 
         const alertSummary = alerts.length > 0
             ? alerts.map(a => `- [${a.severity.toUpperCase()}] ${a.title} (${a.tag}) le ${a.timestamp}`).join('\n')
-            : 'Aucune alerte critique récente. Paramètres nominaux.';
+            : 'Aucune alerte active pour cette serre. Tous les paramètres sont nominaux.';
 
         const actuatorSummary = actuators.length > 0
             ? actuators.map(ac => `- ${ac.actuator_key} : ${ac.action} (Déclencheur : ${ac.trigger_source})`).join('\n')
             : 'Actionneurs en veille nominale.';
 
-        const systemPrompt = `Tu es CyberCortex Assistant IA, le copilote numérique et agronome expert officiel de la serre connectée CyberCortex ERP.
-Ton rôle est d'assister l'opérateur (ingénieur agronome ou gestionnaire d'exploitation) avec rigueur scientifique, clarté et précision.
+        const systemData = {
+            greenhouse_id: active_greenhouse_id,
+            name: active_greenhouse_name,
+            status: gh.status || 'healthy',
+            location: gh.location || 'Site Principal',
+            crop_type: gh.crop_type || 'CEA greenhouse crop',
+            metrics: recentTelemetry.reduce((acc, s) => {
+                let k = s.sensor_key.replace(/^ambient_/, '').replace(/^air_/, '').replace(/_consumption$/, '');
+                if (k === 'water') k = 'water_l';
+                acc[k] = s.value;
+                return acc;
+            }, {})
+        };
 
-DONNÉES EN TEMPS RÉEL DE LA SERRE (MESURES ACTUELLES) :
-${sensorSummary}
+        const domainBounding = `[IDENTITÉ ET PÉRIMÈTRE STRICT - ZERO HALLUCINATION]
+1. TON RÔLE : Tu es l'AI Copilot exclusif du système "Smart Agri Greenhouse / CyberCortex ERP". Tu es un expert en ingénierie agronomique, hydroponie, télémétrie IoT et pilotage de serres.
+2. PÉRIMÈTRE D'ACTION : Ton domaine de compétence est STRICTEMENT limité aux données de la serre active, aux systèmes biophysiques (température, humidité, pH, EC, photopériode), aux actionneurs (pompes, ventilation, éclairage) et aux sciences agricoles associées.
+3. RÈGLE D'OR (ANTI-HALLUCINATION) : Tu ne dois JAMAIS inventer, supposer ou extrapoler des données de capteurs qui ne sont pas explicitement présentes dans le payload JSON fourni. Si une information est manquante, tu dois déclarer que le capteur n'est pas disponible.`;
 
-ACTIONNEURS & RÉCENTES COMMANDES :
-${actuatorSummary}
+        const outOfScopeRejection = `[PROTOCOLE DE REJET DES QUESTIONS HORS-SUJET]
+Si l'utilisateur pose une question qui ne concerne PAS l'agriculture, la gestion de la serre, les capteurs, l'IoT ou le système CyberCortex (exemples : politique, culture générale, programmation informatique générale, blagues, recettes de cuisine), tu as l'INTERDICTION ABSOLUE d'y répondre.
+Dans ce cas, utilise EXACTEMENT la formule de rejet suivante (traduite dans la langue de l'utilisateur) :
+- En Français : "En tant qu'IA agronomique du CyberCortex, mon périmètre est strictement limité à l'analyse et à la gestion de votre serre. Je ne peux pas répondre à cette question. Souhaitez-vous consulter l'état de vos cultures ou analyser la télémétrie ?"
+- En Arabe : "بصفتي المساعد الذكي الخاص بنظام CyberCortex، يقتصر دوري حصرياً على تحليل وإدارة البيت المحمي الخاص بك. لا يمكنني الإجابة على هذا السؤال. هل ترغب في التحقق من حالة المحاصيل أو تحليل بيانات المستشعرات؟"`;
 
-DERNIÈRES ALERTES ENREGISTRÉES :
-${alertSummary}
+        const terminalConstraint = `[CONTRAINTE ABSOLUE D'OUTPUT]
+1. La requête de l'utilisateur est : "${message}".
+2. IDENTIFIE la langue exacte de cette requête (ex: Arabe, Français, Anglais).
+3. TRADUIS obligatoirement l'intégralité de ton raisonnement, tes étiquettes de données (ex: "Température", "Consommation"), et tes recommandations dans CETTE MÊME LANGUE avant de générer ta réponse finale.
+4. Il est strictement interdit de répondre en français si la question est en arabe.`;
 
-SEUILS DE RÉFÉRENCE DE CULTURE (TOMATES / LÉGUMES CEA) :
-- Température ambiante idéale : 20°C à 26°C (Stress modéré dès 29°C, Canicule aigu dès 35°C, Froid critique <= 12°C).
-- Humidité relative idéale : 60% à 75% (Dessèchement stomates <= 20%, Risque cryptogamique >= 85%).
-- Photopériode recommandée : 12h à 16h/j.
-- Consommation d'eau optimale : 30L à 60L/j (Sécheresse imminente <= 15L/j).
+        const systemPrompt = `${domainBounding}
 
-CONSIGNES DE RÉPONSE :
-1. Réponds toujours en français de manière fluide, professionnelle et structurée (utilise des listes à puces et des émojis pertinents).
-2. Pour toute question sur le climat, appuie-toi STRICTEMENT sur les valeurs réelles ci-dessus.
-3. Guide l'utilisateur sur la plateforme : mentionne le "Jumeau Numérique 3D", le bouton "Simuler un scénario" pour tester des stress, et le "Journal des Alertes" (onglet Simulations).
-4. Sois concis et synthétique : 2 à 4 paragraphes percutants maximum.`;
+${outOfScopeRejection}
 
-        // 2. Vérification de la clé API Google Gemini
+SYSTEM_DATA: ${JSON.stringify(systemData)}
+
+OPERATIONAL RULES:
+1. Ground your analysis strictly on the active greenhouse: ${active_greenhouse_name} (ID: ${active_greenhouse_id}).
+2. Do not hallucinate metrics. Use the provided SYSTEM_DATA.
+
+${terminalConstraint}`;
+
+        const generationConfig = {
+            temperature: 0.1,
+            topK: 20,
+            topP: 0.8,
+            maxOutputTokens: 2500
+        };
+
+        // 3. Vérification de la clé API Google Gemini
         const apiKey = process.env.GEMINI_API_KEY;
-        const model = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+        const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
         if (apiKey && apiKey.trim() !== '') {
             try {
@@ -714,7 +975,7 @@ CONSIGNES DE RÉPONSE :
                 const formattedContents = [];
 
                 if (Array.isArray(history)) {
-                    for (const msg of history.slice(-6)) { // Limité aux 6 derniers échanges
+                    for (const msg of history.slice(-6)) {
                         if (msg.role && msg.text) {
                             formattedContents.push({
                                 role: msg.role === 'user' ? 'user' : 'model',
@@ -724,13 +985,11 @@ CONSIGNES DE RÉPONSE :
                     }
                 }
 
-                // Ajout du message actuel
                 formattedContents.push({
                     role: 'user',
-                    parts: [{ text: message }]
+                    parts: [{ text: `${message}\n\n${terminalConstraint}` }]
                 });
 
-                // Appel HTTP natif vers l'API Gemini
                 const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
                 const geminiRes = await fetch(geminiUrl, {
                     method: 'POST',
@@ -740,10 +999,7 @@ CONSIGNES DE RÉPONSE :
                             parts: [{ text: systemPrompt }]
                         },
                         contents: formattedContents,
-                        generationConfig: {
-                            temperature: 0.7,
-                            maxOutputTokens: 2500
-                        }
+                        generationConfig
                     })
                 });
 
@@ -757,7 +1013,9 @@ CONSIGNES DE RÉPONSE :
                             status: 'success',
                             reply: replyText,
                             source: 'gemini',
-                            model
+                            model,
+                            greenhouseId: active_greenhouse_id,
+                            greenhouseName: active_greenhouse_name
                         });
                     }
                 } else {
@@ -769,48 +1027,47 @@ CONSIGNES DE RÉPONSE :
             }
         }
 
-        // 3. Moteur de Réponse Agronomique Heuristique de Secours (Zero-Crash Fallback)
-        console.log('[API-CHAT] Génération réponse locale Cyber-Brain (clé Gemini non active ou indisponible)');
+        // 4. Moteur de Réponse Agronomique Heuristique de Secours (Étanchéité Multi-Serre)
+        console.log(`[API-CHAT] Génération réponse locale Cyber-Brain pour ${active_greenhouse_name} (${active_greenhouse_id})`);
         let fallbackReply = '';
         const lowerMsg = message.toLowerCase();
 
         if (lowerMsg.includes('statut') || lowerMsg.includes('etat') || lowerMsg.includes('climat') || lowerMsg.includes('comment va')) {
-            fallbackReply = `📊 **État Instantané de la Serre (CyberCortex ERP)** :\n\n` +
+            fallbackReply = `📊 **État Instantané de ${active_greenhouse_name}** (ID: \`${active_greenhouse_id}\`) :\n\n` +
                 `${sensorSummary}\n\n` +
-                `🛡️ **Diagnostic Global** : Les systèmes de régulation fonctionnent normalement. La ventilation et l'irrigation sont sous supervision du Cyber-Brain.\n\n` +
-                `💡 *Conseil : Vous pouvez basculer sur l'onglet "Analytique" pour voir les courbes de tendance sur 24H ou 7 jours.*`;
+                `🛡️ **Diagnostic Global** : Statut opérationnel **${gh.status}**. Culture surveillée : *${gh.crop_type}*. Les systèmes de régulation de cette serre fonctionnent normalement sous supervision Cyber-Brain.\n\n` +
+                `💡 *Conseil : Basculez sur l'onglet "Analytique" pour voir les courbes de tendance propres à ${active_greenhouse_name}.*`;
         } else if (lowerMsg.includes('alerte') || lowerMsg.includes('incident') || lowerMsg.includes('probleme')) {
-            fallbackReply = `🚨 **Dernières Alertes Enregistrées** :\n\n` +
+            fallbackReply = `🚨 **Dernières Alertes Enregistrées pour ${active_greenhouse_name}** :\n\n` +
                 `${alertSummary}\n\n` +
-                `📋 Rendez-vous dans le **Journal des Alertes** pour consulter le détail agronomique ou acquitter les alertes traitées.`;
+                `📋 Rendez-vous dans le **Journal des Alertes** pour consulter le détail agronomique propre à cette unité.`;
         } else if (lowerMsg.includes('simul') || lowerMsg.includes('scenario') || lowerMsg.includes('test')) {
-            fallbackReply = `🧪 **Guide de Simulation de Scénario (What-If)** :\n\n` +
-                `1. Cliquez sur le bouton **"Simuler un scénario"** dans la barre d'action de l'accueil.\n` +
-                `2. Ajustez librement les paramètres souhaités (ex: 35°C pour tester la canicule, ou 10% d'humidité pour le dessèchement).\n` +
-                `3. Cliquez sur **"Déclencher"** : le Cyber-Brain analysera les risques physiologiques, activera les contre-mesures automatiques et générera un rapport complet dans le **Journal des Alertes** (onglet **Simulations**).`;
+            fallbackReply = `🧪 **Simulation de Scénario pour ${active_greenhouse_name}** :\n\n` +
+                `1. Cliquez sur **"Simuler un scénario"** depuis le tableau de bord.\n` +
+                `2. Choisissez les stress environnementaux à injecter sur **${active_greenhouse_name}** (ex: 35°C ou 15% d'humidité).\n` +
+                `3. Les alertes et régulations générées seront strictement rattachées à la serre \`${active_greenhouse_id}\`.`;
         } else if (lowerMsg.includes('eau') || lowerMsg.includes('arros') || lowerMsg.includes('irrig')) {
-            fallbackReply = `💧 **Gestion de l'Irrigation & Nutrition** :\n\n` +
-                `- Le seuil minimal d'irrigation est de **15 L/j** pour éviter le stress hydrique racinaire.\n` +
-                `- La consommation nominale se situe entre **30 et 60 L/j** selon l'ensoleillement.\n` +
-                `- En cas de déficit, la pompe d'irrigation et le brumisateur haute pression sont déclenchés automatiquement.`;
-        } else if (lowerMsg.includes('jumeau') || lowerMsg.includes('3d') || lowerMsg.includes('modele')) {
-            fallbackReply = `🎮 **Jumeau Numérique 3D Interactif** :\n\n` +
-                `Le Jumeau Numérique reproduit la serre en trois dimensions avec la modélisation des flux aérauliques, la brumisation et l'éclairage horticole. Cliquez sur **"Ouvrir le jumeau numérique"** pour explorer les capteurs spatiaux et contrôler manuellement les relais.`;
+            fallbackReply = `💧 **Gestion Hydrique de ${active_greenhouse_name} (${gh.crop_type})** :\n\n` +
+                `- Consigne cible hygrométrique : **${gh.target_humidity}%**.\n` +
+                `- Déclenchement automatique de l'irrigation en cas de consommation inférieure à **15 L/j**.\n` +
+                `- Le circuit d'électrovannes de cette serre est autonome et sécurisé.`;
         } else {
-            fallbackReply = `🌱 **Bonjour ! Je suis CyberCortex AI**, votre assistant de pilotage de serre intelligente.\n\n` +
-                `Je surveille actuellement l'ensemble de vos paramètres IoT :\n` +
+            fallbackReply = `🌱 **Bonjour ! Je suis l'AI Copilot de ${active_greenhouse_name}** (ID: \`${active_greenhouse_id}\`).\n\n` +
+                `Voici les télémesures actuelles de votre serre :\n` +
                 `${sensorSummary}\n\n` +
-                `💬 *Que souhaitez-vous vérifier ? Vous pouvez me demander un point sur la télémétrie, les alertes en cours, ou comment simuler un scénario de stress agronomique.*`;
+                `💬 *Toutes mes recommandations sont étanches et dédiées à ${active_greenhouse_name}. Que souhaitez-vous analyser ?*`;
         }
 
         if (!apiKey || apiKey.trim() === '') {
-            fallbackReply += `\n\n*(💡 Astuce : Renseignez votre \`GEMINI_API_KEY\` dans le fichier \`backend/.env\` pour activer la pleine puissance d'analyse conversationnelle générative de Google Gemini).*`;
+            fallbackReply += `\n\n*(💡 Astuce : Renseignez votre \`GEMINI_API_KEY\` dans le fichier \`backend/.env\` pour débloquer l'analyse conversationnelle générative Google Gemini pour ${active_greenhouse_name}).*`;
         }
 
         return res.json({
             status: 'success',
             reply: fallbackReply,
-            source: 'cyber-brain-local'
+            source: 'cyber-brain-local',
+            greenhouseId: active_greenhouse_id,
+            greenhouseName: active_greenhouse_name
         });
 
     } catch (error) {

@@ -7,10 +7,11 @@
  */
 
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Dimensions, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Dimensions, ScrollView, TouchableOpacity, Platform } from 'react-native';
 import { LineChart } from 'react-native-gifted-charts';
 import { fetchTelemetry, TelemetryData, Timeframe } from '../services/api';
 import CyberControlPanel from './CyberControlPanel';
+import { useTranslation } from '../i18n';
 
 // Options du sélecteur temporel
 export const TIMEFRAME_OPTIONS: { id: Timeframe; label: string }[] = [
@@ -115,10 +116,10 @@ const TelemetryChartCard = React.memo(function TelemetryChartCard({
                         data={data}
                         width={chartWidth}
                         height={170}
-                        isAnimated={true}
-                        animateOnDataChange={true}
-                        animationDuration={500}
-                        curved={true}
+                        isAnimated={Platform.OS !== 'web'}
+                        animateOnDataChange={Platform.OS !== 'web'}
+                        animationDuration={Platform.OS !== 'web' ? 500 : 0}
+                        curved={Platform.OS !== 'web'}
                         thickness={3}
                         color={lineColor}
                         startFillColor={startFillColor}
@@ -148,6 +149,7 @@ const TelemetryChartCard = React.memo(function TelemetryChartCard({
 // COMPOSANT PRINCIPAL : AnalyticsView
 // ============================================================================
 export default function AnalyticsView() {
+    const { t } = useTranslation();
     const [timeframe, setTimeframe] = useState<Timeframe>('live');
 
     // 1. ÉTATS DES 4 FLUX DE TÉLÉMÉTRIE
@@ -351,7 +353,7 @@ export default function AnalyticsView() {
                 COURBE 1 : TEMPÉRATURE GLOBALE (°C)
                 ========================================== */}
             <TelemetryChartCard
-                title="Température Globale"
+                title={t('sensor.ambient_temp')}
                 unit="°C"
                 data={temperatureData}
                 latestValue={latestTemp}
@@ -369,7 +371,7 @@ export default function AnalyticsView() {
                 COURBE 2 : HUMIDITÉ DE L'AIR (%)
                 ========================================== */}
             <TelemetryChartCard
-                title="Humidité Air"
+                title={t('sensor.air_humidity')}
                 unit="%"
                 data={humidityData}
                 latestValue={latestHum}
@@ -387,7 +389,7 @@ export default function AnalyticsView() {
                 COURBE 3 : PHOTOPÉRIODE (h) - Tons solaires / ambrés
                 ========================================== */}
             <TelemetryChartCard
-                title="Photopériode"
+                title={t('sensor.photoperiod')}
                 unit="h"
                 data={photoperiodData}
                 latestValue={latestPhoto}
@@ -405,7 +407,7 @@ export default function AnalyticsView() {
                 COURBE 4 : CONSOMMATION D'EAU (L) - Tons aquatiques profonds
                 ========================================== */}
             <TelemetryChartCard
-                title="Consommation d'eau"
+                title={t('sensor.water_consumption')}
                 unit="L"
                 data={waterConsumptionData}
                 latestValue={latestWater}
@@ -481,7 +483,7 @@ const styles = StyleSheet.create({
         height: 8,
         borderRadius: 4,
         backgroundColor: '#27ae60',
-        marginRight: 6,
+        marginEnd: 6,
     },
     syncText: {
         fontSize: 11,
@@ -561,7 +563,7 @@ const styles = StyleSheet.create({
         width: 6,
         height: 6,
         borderRadius: 3,
-        marginRight: 6,
+        marginEnd: 6,
     },
     streamLabel: {
         fontSize: 11,
@@ -582,11 +584,11 @@ const styles = StyleSheet.create({
     liveUnitBig: {
         fontSize: 18,
         fontWeight: 'bold',
-        marginLeft: 4,
+        marginStart: 4,
     },
 
     graphWrapper: {
-        marginLeft: -10,
+        marginStart: -10,
         alignItems: 'center',
     },
     axisText: {

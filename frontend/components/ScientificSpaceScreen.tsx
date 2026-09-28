@@ -19,6 +19,8 @@ import {
     FlatList,
 } from 'react-native';
 import { fetchUserProfile, updateUserProfile, UserProfile, API_BASE_URL } from '../services/api';
+import { ProfileSettingsView } from './ProfileSettingsView';
+import { useTranslation } from '../i18n';
 import {
     TUNISIAN_GOVERNORATES,
     Governorate,
@@ -26,33 +28,35 @@ import {
     DEFAULT_GOVERNORATE,
 } from '../constants/governorates';
 
+import { Colors, BorderRadius } from '../constants/theme';
+
 const SCREEN_W = Dimensions.get('window').width;
 
 // ============================================
-// DESIGN TOKENS - CyberCortex ERP
+// DESIGN TOKENS - Living Intelligence
 // ============================================
 const TOKENS = {
-    bg: '#f8fafc',
-    panel: '#ffffff',
-    panelElevated: '#f1f5f9',
-    surface: '#ffffff',
-    surfaceLighter: '#f1f5f9',
-    border: '#e2e8f0',
-    borderFocus: '#27ae60',
-    text: '#0f172a',
-    textMuted: '#64748b',
-    textSubtle: '#94a3b8',
-    primary: '#27ae60',
-    primaryDeep: '#1e8449',
-    primaryLight: 'rgba(39, 174, 96, 0.1)',
-    danger: '#ef4444',
-    dangerLight: 'rgba(239, 68, 68, 0.1)',
-    info: '#0284c7',
-    infoLight: 'rgba(2, 132, 199, 0.1)',
-    accent: '#f59e0b',
-    radiusLg: 20,
-    radiusMd: 12,
-    radiusSm: 8,
+    bg: Colors.background,
+    panel: Colors.surface,
+    panelElevated: '#EFF3EF',
+    surface: Colors.surface,
+    surfaceLighter: '#EFF3EF',
+    border: Colors.border,
+    borderFocus: Colors.primary,
+    text: Colors.textDark,
+    textMuted: Colors.textMuted,
+    textSubtle: '#8C9A91',
+    primary: Colors.primary,
+    primaryDeep: '#165832',
+    primaryLight: 'rgba(31, 122, 70, 0.08)',
+    danger: Colors.danger,
+    dangerLight: 'rgba(217, 92, 92, 0.08)',
+    info: Colors.info,
+    infoLight: 'rgba(77, 134, 199, 0.08)',
+    accent: Colors.warning,
+    radiusLg: BorderRadius.lg,
+    radiusMd: BorderRadius.md,
+    radiusSm: BorderRadius.sm,
 };
 
 const SETTINGS_MENU = [
@@ -68,6 +72,7 @@ export interface ScientificSpaceScreenProps {
 }
 
 export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScreenProps) {
+    const { t, isRTL } = useTranslation();
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [stats, setStats] = useState({ connected_greenhouses: 1, active_sensors: 7, relays: 4 });
     const [loading, setLoading] = useState(true);
@@ -294,9 +299,9 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
                         <View style={styles.livePulseDot} />
                         <Text style={styles.headerTagText}>NŒUD EDGE CONNECTÉ • TUNISIE</Text>
                     </View>
-                    <Text style={styles.h1}>Espace Scientifique</Text>
+                    <Text style={styles.h1}>{t('scientific_space_title', 'Espace Scientifique')}</Text>
                     <Text style={styles.subtext}>
-                        Identité de recherche, habilitation agronomique & référentiel territorial.
+                        {t('scientific_space_subtitle', 'Identité de recherche, habilitation agronomique & référentiel territorial.')}
                     </Text>
                 </View>
 
@@ -359,7 +364,7 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
                                                 setFeedback(null);
                                             }}
                                         >
-                                            <Text style={styles.editButtonText}>Modifier</Text>
+                                            <Text style={styles.editButtonText}>{t('edit_profile', 'Modifier')}</Text>
                                         </Pressable>
                                     </View>
 
@@ -388,17 +393,17 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
                             <View style={styles.statsContainer}>
                                 <View style={styles.statItem}>
                                     <Text style={styles.statValue}>{stats.connected_greenhouses}</Text>
-                                    <Text style={styles.statLabel}>Serres Actives</Text>
+                                    <Text style={styles.statLabel}>{t('active_greenhouses', 'Serres Actives')}</Text>
                                 </View>
                                 <View style={styles.statDivider} />
                                 <View style={styles.statItem}>
                                     <Text style={styles.statValue}>{stats.active_sensors}</Text>
-                                    <Text style={styles.statLabel}>Capteurs Télémétrie</Text>
+                                    <Text style={styles.statLabel}>{t('telemetry_sensors', 'Capteurs Télémétrie')}</Text>
                                 </View>
                                 <View style={styles.statDivider} />
                                 <View style={styles.statItem}>
                                     <Text style={styles.statValue}>{stats.relays}</Text>
-                                    <Text style={styles.statLabel}>Relais Actionneurs</Text>
+                                    <Text style={styles.statLabel}>{t('actuator_relays', 'Relais Actionneurs')}</Text>
                                 </View>
                             </View>
                         </>
@@ -620,32 +625,12 @@ export default function ScientificSpaceScreen({ onLogout }: ScientificSpaceScree
                     </Pressable>
                 </View>
 
-                {/* --- MENU DES PARAMÈTRES AVANCÉS --- */}
-                <View style={styles.settingsContainer}>
-                    <Text style={styles.settingsSectionTitle}>Paramètres & Infrastructure</Text>
-                    {SETTINGS_MENU.map((item, index) => (
-                        <Pressable
-                            key={item.id}
-                            style={[
-                                styles.settingRow,
-                                index === SETTINGS_MENU.length - 1 && { borderBottomWidth: 0 },
-                            ]}
-                        >
-                            <View style={styles.settingTextContainer}>
-                                <Text style={styles.settingTitle}>{item.title}</Text>
-                                <Text style={styles.settingDesc}>{item.desc}</Text>
-                            </View>
-                            <Text style={styles.settingArrow}>›</Text>
-                        </Pressable>
-                    ))}
-                </View>
-
-                {/* --- BOUTON DE DÉCONNEXION --- */}
-                {Boolean(onLogout) && (
-                    <Pressable style={styles.logoutButton} onPress={onLogout}>
-                        <Text style={styles.logoutButtonText}>Déconnexion de la session de recherche</Text>
-                    </Pressable>
-                )}
+                {/* --- MODULE PARAMÈTRES & INFRASTRUCTURE --- */}
+                <ProfileSettingsView
+                    onLogout={onLogout}
+                    userEmail={profile?.email || email}
+                    organization={profile?.organization || organization}
+                />
 
             </ScrollView>
 

@@ -54,6 +54,11 @@ if (typeof window !== 'undefined') {
 }
 
 
+import { Modal } from 'react-native';
+import { ActiveGreenhouseProvider, useActiveGreenhouse } from '../context/ActiveGreenhouseContext';
+import { AllGreenhousesGrid } from '../components/greenhouse/AllGreenhousesGrid';
+import { GreenhouseManagementScreen } from '../screens/GreenhouseManagementScreen';
+
 const queryClient = new QueryClient({
     defaultOptions: {
         queries: {
@@ -63,21 +68,55 @@ const queryClient = new QueryClient({
     },
 });
 
+function GlobalMultiGreenhouseModal() {
+    const { isMultiViewOpen, setIsMultiViewOpen } = useActiveGreenhouse();
+
+    return (
+        <Modal
+            visible={isMultiViewOpen}
+            animationType="fade"
+            transparent={false}
+            onRequestClose={() => setIsMultiViewOpen(false)}
+        >
+            <AllGreenhousesGrid onClose={() => setIsMultiViewOpen(false)} />
+        </Modal>
+    );
+}
+
+function GlobalGreenhouseManagementModal() {
+    const { isManagementModalOpen, setIsManagementModalOpen } = useActiveGreenhouse();
+
+    return (
+        <Modal
+            visible={isManagementModalOpen}
+            animationType="slide"
+            transparent={false}
+            onRequestClose={() => setIsManagementModalOpen(false)}
+        >
+            <GreenhouseManagementScreen onClose={() => setIsManagementModalOpen(false)} />
+        </Modal>
+    );
+}
+
 export default function RootLayout() {
     return (
         <QueryClientProvider client={queryClient}>
-            <StatusBar style="dark" />
-            <Stack screenOptions={{ headerShown: false }}>
-                <Stack.Screen name="(tabs)" />
-                <Stack.Screen
-                    name="digital-twin"
-                    options={{
-                        headerShown: true,
-                        title: 'Digital Twin',
-                        presentation: 'modal',
-                    }}
-                />
-            </Stack>
+            <ActiveGreenhouseProvider>
+                <StatusBar style="dark" />
+                <Stack screenOptions={{ headerShown: false }}>
+                    <Stack.Screen name="(tabs)" />
+                    <Stack.Screen
+                        name="digital-twin"
+                        options={{
+                            headerShown: true,
+                            title: 'Digital Twin',
+                            presentation: 'modal',
+                        }}
+                    />
+                </Stack>
+                <GlobalMultiGreenhouseModal />
+                <GlobalGreenhouseManagementModal />
+            </ActiveGreenhouseProvider>
         </QueryClientProvider>
     );
 }

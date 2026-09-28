@@ -94,9 +94,9 @@ export default function CyberControlPanel({ isSystemAutonomous = true }: CyberCo
                     disabled={isWatering} // Bloque le bouton tant que la requête API court
                 >
                     {isWatering ? (
-                        <ActivityIndicator color="#ffffff" size="small" style={{ marginRight: 8 }} />
+                        <ActivityIndicator color="#ffffff" size="small" style={{ marginEnd: 8 }} />
                     ) : (
-                        <MaterialCommunityIcons name="water-pump" size={24} color="#ffffff" style={{ marginRight: 8 }} />
+                        <MaterialCommunityIcons name="water-pump" size={24} color="#ffffff" style={{ marginEnd: 8 }} />
                     )}
                     <Text style={styles.overrideBtnText}>
                         {isWatering ? 'Hydratation en cours...' : 'Forcer l\'Hydratation'}
@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
         opacity: 0.15,
         transform: [{ scale: 1.2 }],
     },
-    healthStats: { marginLeft: 15, flex: 1 },
+    healthStats: { marginStart: 15, flex: 1 },
     healthTitle: {
         color: '#34495e',
         fontSize: 15,

@@ -1,24 +1,16 @@
+/**
+ * Living Intelligence Predictive Yield Simulator ("What-If" Laboratory)
+ * Biophysical simulation with sleek sliders, smooth Bézier projection curves,
+ * and a distinct "Before / After" outcome card (Expected Yield, Harvest Time, Risk Level).
+ */
+
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, Platform, ActivityIndicator, Vibration } from 'react-native';
+import { View, Text, StyleSheet, Platform, Pressable, Vibration, useWindowDimensions } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { LineChart } from 'react-native-gifted-charts';
-
-// ==========================================
-// Design Tokens - CyberCortex ERP IoT
-// ==========================================
-const TOKENS = {
-    panel: '#ffffff',
-    text: '#1e293b',
-    textMuted: '#64748b',
-    primary: '#27ae60',
-    primaryLight: 'rgba(39, 174, 96, 0.12)',
-    danger: '#e74c3c',
-    dangerLight: 'rgba(231, 76, 60, 0.12)',
-    gray: '#94a3b8',
-    border: '#e2e8f0',
-    cardDark: '#0f172a',
-    cardDarkBorder: 'rgba(255, 255, 255, 0.15)',
-};
+import { Ionicons } from '@expo/vector-icons';
+import { Colors, BorderRadius, Spacing, Shadows, Typography } from '../constants/theme';
+import { StatusBadge, StatusType } from './ui/StatusBadge';
 
 export interface SimulationDataPoint {
     value: number;
@@ -30,127 +22,91 @@ export interface SimulationDataPoint {
 }
 
 export default function PredictiveSimulationView() {
-    const [tempVariation, setTempVariation] = useState<number>(0.5);
-    const [photoperiod, setPhotoperiod] = useState<number>(16);
+    const { width: windowWidth } = useWindowDimensions();
+    const [tempDelta, setTempDelta] = useState<number>(0.5); // Delta -4°C to +4°C
+    const [photoperiod, setPhotoperiod] = useState<number>(16); // 8h to 24h
+    const [irrigationFactor, setIrrigationFactor] = useState<number>(100); // 50% to 150%
     const [isSimulating, setIsSimulating] = useState(false);
 
     const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const lastHapticIdentifier = useRef<string | number | null>(null);
 
     // ==========================================
-    // 1. Modélisation Mathématique Prédictive
+    // 1. Modélisation Mathématique & Physiological Yield
     // ==========================================
-    const calculateGrowthCurve = useCallback((tempVar: number, photo: number): SimulationDataPoint[] => {
-        // Optimaux théoriques idéaux (Delta 0°C, Lumière 16h)
-        const tempStress = Math.pow(Math.abs(tempVar), 1.5) * 4;       // Pénalité thermique exponentielle
-        const lightStress = Math.pow(Math.abs(16 - photo), 1.2) * 5;   // Pénalité photosynthétique
+    const calculateProjection = useCallback(
+        (tDelta: number, photo: number, irrig: number) => {
+            const tempStress = Math.pow(Math.abs(tDelta), 1.4) * 3.8;
+            const lightStress = Math.pow(Math.abs(16 - photo), 1.2) * 4.5;
+            const waterStress = Math.pow(Math.abs(100 - irrig) / 10, 1.3) * 2.2;
 
-        // Efficacité physiologique de la plante (10% à 100%)
-        const plantHealthEfficiency = Math.max(10, 100 - tempStress - lightStress);
+            const healthEfficiency = Math.max(15, Math.min(100, 100 - tempStress - lightStress - waterStress));
 
-        const data: SimulationDataPoint[] = [];
-        // Projection sur 10 jours
-        for (let day = 1; day <= 10; day++) {
-            // Courbe logarithmique modulée par l'efficience de santé
-            const rawYield = plantHealthEfficiency * Math.log10(day + 1.5) * 1.5;
-            const yieldValue = Math.max(0, Math.round(rawYield + Math.sin(day * tempVar) * 5));
-            // Calcul du rendement en pourcentage normalisé
-            const yieldPct = Math.min(100, Math.max(0, Math.round((yieldValue / 140) * 100)));
+            const points: SimulationDataPoint[] = [];
+            for (let day = 1; day <= 10; day++) {
+                const rawYield = healthEfficiency * Math.log10(day + 1.4) * 1.5;
+                const yieldVal = Math.max(0, Math.round(rawYield + Math.sin(day * tDelta) * 4));
+                const yieldPct = Math.min(100, Math.max(0, Math.round((yieldVal / 140) * 100)));
 
-            data.push({
-                value: yieldValue,
-                label: `J${day}`,
-                step: `J+${day}`,
-                day,
-                yieldPercent: yieldPct,
-                hideDataPoint: Platform.OS === 'web',
-            });
-        }
-        return data;
-    }, []);
-
-    // Mémorisation optimisée des points de simulation pour des rendus ultra-fluides
-    const chartData = useMemo(() => {
-        return calculateGrowthCurve(tempVariation, photoperiod);
-    }, [calculateGrowthCurve, tempVariation, photoperiod]);
-
-    // Détection de l'état de stress global
-    const currentHealth = chartData[chartData.length - 1]?.value ?? 100;
-    const isCritical = currentHealth < 60;
-
-    // ==========================================
-    // 2. Gestion du Retour Haptique
-    // ==========================================
-    const triggerHapticFeedback = useCallback((identifier: string | number) => {
-        if (lastHapticIdentifier.current !== identifier) {
-            lastHapticIdentifier.current = identifier;
-            try {
-                if (Platform.OS !== 'web') {
-                    Vibration.vibrate(10);
-                } else if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-                    navigator.vibrate(10);
-                }
-            } catch {
-                // Silencieux si la vibration n'est pas autorisée ou non disponible
+                points.push({
+                    value: yieldVal,
+                    label: `J${day}`,
+                    step: `J+${day}`,
+                    day,
+                    yieldPercent: yieldPct,
+                    hideDataPoint: Platform.OS === 'web',
+                });
             }
-        }
-    }, []);
 
-    // ==========================================
-    // 3. Rendu de l'Infobulle Dynamique (Tooltip)
-    // ==========================================
-    const renderTooltip = useCallback((items: any) => {
-        if (!items || !items[0]) return null;
-        const item = items[0] as SimulationDataPoint;
+            return {
+                points,
+                healthEfficiency: Math.round(healthEfficiency),
+                simulatedYield: points[points.length - 1]?.yieldPercent || 85,
+            };
+        },
+        []
+    );
 
-        // Déclenchement du retour haptique au verrouillage du point
-        triggerHapticFeedback(item.label || item.day || item.value);
+    const { points: chartData, simulatedYield } = useMemo(() => {
+        return calculateProjection(tempDelta, photoperiod, irrigationFactor);
+    }, [calculateProjection, tempDelta, photoperiod, irrigationFactor]);
 
-        const pointColor = isCritical ? TOKENS.danger : TOKENS.primary;
-        const yieldValue = item.yieldPercent ?? Math.min(100, Math.round((item.value / 140) * 100));
+    // Baseline (Before) vs Simulated (After)
+    const baselineYield = 86;
+    const baselineHarvestDays = 28;
 
-        return (
-            <View style={styles.tooltipContainer}>
-                {/* En-tête : Badge étape temporelle */}
-                <View style={styles.tooltipHeader}>
-                    <View style={[styles.tooltipStatusDot, { backgroundColor: pointColor }]} />
-                    <Text style={styles.tooltipStepText}>{item.step || `Jour ${item.day || item.label}`}</Text>
-                </View>
+    // Harvest time calculation based on growth acceleration or deceleration
+    const deltaDays = Math.round(((baselineYield - simulatedYield) / 10) * 2.5);
+    const simulatedHarvestDays = Math.max(18, baselineHarvestDays + deltaDays);
 
-                {/* Métrique principale : Rendement projeté */}
-                <View style={styles.tooltipBody}>
-                    <Text style={styles.tooltipMetricLabel}>Rendement estimé</Text>
-                    <View style={styles.tooltipValueRow}>
-                        <Text style={[styles.tooltipMetricValue, { color: pointColor }]}>
-                            {yieldValue}%
-                        </Text>
-                        <Text style={styles.tooltipSubValue}> ({item.value} pts)</Text>
-                    </View>
-                </View>
-            </View>
-        );
-    }, [isCritical, triggerHapticFeedback]);
+    // Risk level assessment
+    let simulatedRiskStatus: StatusType = 'healthy';
+    let simulatedRiskLabel = 'Faible (Optimal)';
+    if (simulatedYield < 65) {
+        simulatedRiskStatus = 'critical';
+        simulatedRiskLabel = 'Élevé (Stress sévère)';
+    } else if (simulatedYield < 80) {
+        simulatedRiskStatus = 'attention';
+        simulatedRiskLabel = 'Modéré (Vigilance)';
+    }
 
-    // ==========================================
-    // 4. Passerelle de Simulation (Debounce 500ms)
-    // ==========================================
+    // Silent background dispatch to backend
     useEffect(() => {
         if (debounceTimer.current) clearTimeout(debounceTimer.current);
 
         debounceTimer.current = setTimeout(async () => {
             setIsSimulating(true);
             try {
-                // Déclenchement silencieux de la projection CyberBrain
                 await fetch('http://localhost:5000/api/telemetry/simulate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        temperature_delta: tempVariation,
-                        photoperiod: photoperiod,
+                        temperature_delta: tempDelta,
+                        photoperiod,
+                        irrigation_factor: irrigationFactor,
                     }),
                 });
-            } catch (e) {
-                console.error("[Prediction] Impossible de contacter le CyberBrain", e);
+            } catch (err) {
+                // Silently handle
             } finally {
                 setIsSimulating(false);
             }
@@ -159,346 +115,424 @@ export default function PredictiveSimulationView() {
         return () => {
             if (debounceTimer.current) clearTimeout(debounceTimer.current);
         };
-    }, [tempVariation, photoperiod]);
+    }, [tempDelta, photoperiod, irrigationFactor]);
+
+    const yieldDelta = simulatedYield - baselineYield;
 
     return (
-        <View style={styles.container}>
-            <View style={styles.header}>
-                <Text style={styles.title}>Simulez avant d'agir</Text>
-                {isSimulating && <ActivityIndicator size="small" color={TOKENS.primary} />}
+        <View style={styles.labCard}>
+            {/* Header */}
+            <View style={styles.labHeader}>
+                <View style={styles.labTitleRow}>
+                    <View style={styles.labIconBox}>
+                        <Ionicons name="flask" size={20} color={Colors.primary} />
+                    </View>
+                    <View>
+                        <Text style={styles.labTitle}>Laboratoire "What-If" Prédictif</Text>
+                        <Text style={styles.labSubtitle}>
+                            Simulation biophysique de rendement et d'échéance de récolte
+                        </Text>
+                    </View>
+                </View>
+                {isSimulating && (
+                    <View style={styles.simulatingBadge}>
+                        <Ionicons name="sync" size={12} color={Colors.primary} />
+                        <Text style={styles.simulatingText}>Calcul en cours</Text>
+                    </View>
+                )}
             </View>
-            <Text style={styles.subtitle}>Modélisation par Cyber-Brain™</Text>
 
-            {/* --- CONTROLES SIMULATION --- */}
-            <View style={styles.controlsLayout}>
-
-                {/* Variation Température */}
-                <View style={styles.controlGroup}>
-                    <View style={styles.controlHeader}>
-                        <Text style={styles.label}>Variation de température</Text>
-                        <Text style={[styles.valBadge, tempVariation < 0 ? { color: '#3498db' } : { color: '#e67e22' }]}>
-                            {tempVariation > 0 ? '+' : ''}{tempVariation.toFixed(1)}°C
+            {/* Visual Sliders / Steppers for Variables */}
+            <View style={styles.slidersContainer}>
+                {/* 1. Temp Delta Slider */}
+                <View style={styles.sliderItem}>
+                    <View style={styles.sliderLabelRow}>
+                        <View style={styles.sliderTag}>
+                            <Ionicons name="thermometer-outline" size={14} color={Colors.temperature} />
+                            <Text style={styles.sliderName}>Variation Température</Text>
+                        </View>
+                        <Text style={styles.sliderValueText}>
+                            {tempDelta > 0 ? `+${tempDelta.toFixed(1)}` : tempDelta.toFixed(1)} °C
                         </Text>
                     </View>
                     <Slider
-                        style={styles.slider}
-                        minimumValue={-5}
-                        maximumValue={5}
-                        step={0.5}
-                        value={tempVariation}
-                        onValueChange={setTempVariation}
-                        minimumTrackTintColor={tempVariation < 0 ? '#3498db' : '#e67e22'}
-                        maximumTrackTintColor={TOKENS.border}
-                        thumbTintColor={TOKENS.primary}
+                        minimumValue={-4.0}
+                        maximumValue={4.0}
+                        step={0.1}
+                        value={tempDelta}
+                        onValueChange={setTempDelta}
+                        minimumTrackTintColor={Colors.primary}
+                        maximumTrackTintColor={Colors.border}
+                        thumbTintColor={Colors.primary}
+                        style={styles.sliderControl}
                     />
-                    <View style={styles.sliderLimits}>
-                        <Text style={styles.limitText}>-5°C</Text>
-                        <Text style={styles.limitText}>+5°C</Text>
+                    <View style={styles.sliderRangeLimits}>
+                        <Text style={styles.limitText}>-4.0°C (Froid)</Text>
+                        <Text style={styles.limitCenter}>0.0°C (Réel)</Text>
+                        <Text style={styles.limitText}>+4.0°C (Chaud)</Text>
                     </View>
                 </View>
 
-                {/* Photopériode */}
-                <View style={styles.controlGroup}>
-                    <View style={styles.controlHeader}>
-                        <Text style={styles.label}>Photopériode</Text>
-                        <Text style={styles.valBadge}>{photoperiod.toFixed(0)} h</Text>
+                {/* 2. Photoperiod Slider */}
+                <View style={styles.sliderItem}>
+                    <View style={styles.sliderLabelRow}>
+                        <View style={styles.sliderTag}>
+                            <Ionicons name="sunny-outline" size={14} color={Colors.light} />
+                            <Text style={styles.sliderName}>Photopériode Artificielle</Text>
+                        </View>
+                        <Text style={styles.sliderValueText}>{photoperiod.toFixed(0)} h / jour</Text>
                     </View>
                     <Slider
-                        style={styles.slider}
                         minimumValue={8}
                         maximumValue={24}
                         step={1}
                         value={photoperiod}
                         onValueChange={setPhotoperiod}
-                        minimumTrackTintColor="#f1c40f"
-                        maximumTrackTintColor={TOKENS.border}
-                        thumbTintColor={TOKENS.primary}
+                        minimumTrackTintColor={Colors.primary}
+                        maximumTrackTintColor={Colors.border}
+                        thumbTintColor={Colors.primary}
+                        style={styles.sliderControl}
                     />
-                    <View style={styles.sliderLimits}>
-                        <Text style={styles.limitText}>8h</Text>
-                        <Text style={styles.limitText}>24h</Text>
+                    <View style={styles.sliderRangeLimits}>
+                        <Text style={styles.limitText}>8h (Court)</Text>
+                        <Text style={styles.limitCenter}>16h (Optimal)</Text>
+                        <Text style={styles.limitText}>24h (Max)</Text>
                     </View>
                 </View>
 
+                {/* 3. Irrigation Factor Slider */}
+                <View style={styles.sliderItem}>
+                    <View style={styles.sliderLabelRow}>
+                        <View style={styles.sliderTag}>
+                            <Ionicons name="water-outline" size={14} color={Colors.humidity} />
+                            <Text style={styles.sliderName}>Régime d'Irrigation</Text>
+                        </View>
+                        <Text style={styles.sliderValueText}>{irrigationFactor.toFixed(0)} %</Text>
+                    </View>
+                    <Slider
+                        minimumValue={50}
+                        maximumValue={150}
+                        step={5}
+                        value={irrigationFactor}
+                        onValueChange={setIrrigationFactor}
+                        minimumTrackTintColor={Colors.primary}
+                        maximumTrackTintColor={Colors.border}
+                        thumbTintColor={Colors.primary}
+                        style={styles.sliderControl}
+                    />
+                    <View style={styles.sliderRangeLimits}>
+                        <Text style={styles.limitText}>50% (Stress sec)</Text>
+                        <Text style={styles.limitCenter}>100% (Nominal)</Text>
+                        <Text style={styles.limitText}>150% (Sur-irrigation)</Text>
+                    </View>
+                </View>
             </View>
 
-            {/* --- GRAPHIQUE PREDICTIF AVEC POINTEUR INTERACTIF & CROSSHAIR --- */}
-            <View style={styles.chartContainer}>
-                <View style={styles.chartHeaderRow}>
-                    <Text style={styles.chartTitle}>Impact projeté sur le rendement (10 Jours)</Text>
-                    <View style={styles.liveCursorBadge}>
-                        <View style={[styles.livePulseDot, { backgroundColor: isCritical ? TOKENS.danger : TOKENS.primary }]} />
-                        <Text style={styles.liveCursorText}>Survol interactif actif</Text>
-                    </View>
+            {/* DISTINCT "BEFORE / AFTER" OUTCOME CARD */}
+            <View style={styles.outcomeCard}>
+                <View style={styles.outcomeHeader}>
+                    <Text style={styles.outcomeTitle}>Impact Comparatif du Scénario</Text>
+                    <Text style={styles.outcomeSub}>Projection calculée sur 10 jours de culture</Text>
                 </View>
 
-                <View style={styles.chartWrapper}>
-                    <LineChart
-                        data={chartData}
-                        width={Platform.OS === 'web' ? 800 : 310}
-                        height={210}
-                        thickness={3.5}
-                        color={isCritical ? TOKENS.danger : TOKENS.primary}
-                        hideDataPoints={Platform.OS === 'web'}
-                        dataPointsColor={isCritical ? TOKENS.danger : TOKENS.primary}
-                        startFillColor={isCritical ? 'rgba(231, 76, 60, 0.28)' : TOKENS.primaryLight}
-                        endFillColor="rgba(255,255,255,0.01)"
-                        startOpacity={0.85}
-                        endOpacity={0.1}
-                        yAxisThickness={0}
-                        xAxisThickness={1}
-                        xAxisColor={TOKENS.border}
-                        yAxisTextStyle={{ color: TOKENS.gray, fontSize: 11, fontWeight: '600' }}
-                        xAxisLabelTextStyle={{ color: TOKENS.gray, fontSize: 11, fontWeight: '600' }}
-                        noOfSections={4}
-                        maxValue={150}
-                        curved
-                        areaChart
-                        isAnimated={true}
-                        animationDuration={500}
-                        // ==========================================
-                        // CONFIGURATION POINTER & TOOLTIP
-                        // ==========================================
-                        pointerConfig={{
-                            // Curseur vertical pointillé vert industriel
-                            pointerStripColor: '#27ae60',
-                            pointerStripWidth: 2,
-                            strokeDashArray: [2, 2],
-                            pointerStripUptoDataPoint: true,
-
-                            // Marqueur de point circulaire interactif
-                            pointerColor: '#27ae60',
-                            radius: 6,
-
-                            // Comportement & fluidité
-                            activatePointersInstantlyOnTouch: true,
-                            autoAdjustPointerLabelPosition: true,
-                            pointerLabelWidth: 140,
-                            pointerLabelHeight: 65,
-                            shiftPointerLabelX: -60,
-                            shiftPointerLabelY: 5,
-
-                            // Composant de rendu de l'infobulle
-                            pointerLabelComponent: renderTooltip,
-                        }}
-                    />
-                </View>
-
-                {isCritical && (
-                    <View style={styles.alertBanner}>
-                        <Text style={styles.alertBannerText}>
-                            ⚠️ Le profil paramétrique causera de lourds dommages physiologiques sur la culture.
+                <View style={styles.comparisonGrid}>
+                    {/* Column 1: Expected Yield */}
+                    <View style={styles.comparisonCol}>
+                        <Text style={styles.compLabel}>Rendement Projeté</Text>
+                        <View style={styles.compValueRow}>
+                            <Text style={styles.beforeValue}>{baselineYield}%</Text>
+                            <Ionicons name="arrow-forward" size={14} color={Colors.textMuted} />
+                            <Text
+                                style={[
+                                    styles.afterValue,
+                                    { color: yieldDelta >= 0 ? Colors.secondary : Colors.danger },
+                                ]}
+                            >
+                                {simulatedYield}%
+                            </Text>
+                        </View>
+                        <Text
+                            style={[
+                                styles.compDelta,
+                                { color: yieldDelta >= 0 ? Colors.secondary : Colors.danger },
+                            ]}
+                        >
+                            {yieldDelta >= 0 ? `+${yieldDelta}%` : `${yieldDelta}%`} vs référence
                         </Text>
                     </View>
-                )}
+
+                    <View style={styles.compDivider} />
+
+                    {/* Column 2: Harvest Time */}
+                    <View style={styles.comparisonCol}>
+                        <Text style={styles.compLabel}>Échéance Récolte</Text>
+                        <View style={styles.compValueRow}>
+                            <Text style={styles.beforeValue}>J+{baselineHarvestDays}</Text>
+                            <Ionicons name="arrow-forward" size={14} color={Colors.textMuted} />
+                            <Text style={styles.afterValue}>J+{simulatedHarvestDays}</Text>
+                        </View>
+                        <Text style={styles.compDelta}>
+                            {deltaDays < 0
+                                ? `${deltaDays} jours plus tôt`
+                                : deltaDays > 0
+                                ? `+${deltaDays} jours de retard`
+                                : 'Calendrier inchangé'}
+                        </Text>
+                    </View>
+
+                    <View style={styles.compDivider} />
+
+                    {/* Column 3: Risk Level */}
+                    <View style={styles.comparisonCol}>
+                        <Text style={styles.compLabel}>Niveau de Risque</Text>
+                        <View style={{ marginTop: 6 }}>
+                            <StatusBadge status={simulatedRiskStatus} label={simulatedRiskLabel} />
+                        </View>
+                        <Text style={styles.compDelta}>Stabilité physiologique</Text>
+                    </View>
+                </View>
             </View>
 
+            {/* Projection Chart */}
+            <View style={styles.chartSection}>
+                <View style={styles.chartTitleRow}>
+                    <Text style={styles.chartTitle}>Trajectoire d'Accroissement Biologique</Text>
+                    <Text style={styles.chartScale}>Échelle normalisée (0 à 100)</Text>
+                </View>
+
+                <LineChart
+                    curved
+                    curveType={0}
+                    data={chartData}
+                    width={Math.min((windowWidth || 380) - 72, 860)}
+                    height={190}
+                    color={yieldDelta >= 0 ? Colors.primary : Colors.warning}
+                    thickness={3}
+                    areaChart
+                    startFillColor={yieldDelta >= 0 ? Colors.secondary : Colors.warning}
+                    endFillColor={`${Colors.surface}00`}
+                    startOpacity={0.25}
+                    endOpacity={0.02}
+                    initialSpacing={12}
+                    endSpacing={12}
+                    noOfSections={3}
+                    rulesColor={Colors.border}
+                    rulesType="solid"
+                    yAxisColor="transparent"
+                    xAxisColor={Colors.border}
+                    yAxisTextStyle={{ color: Colors.textMuted, fontSize: 10, fontFamily: Typography.monoFont }}
+                    xAxisLabelTextStyle={{ color: Colors.textMuted, fontSize: 10, fontFamily: Typography.monoFont }}
+                    hideDataPoints={Platform.OS === 'web'}
+                    dataPointsColor={yieldDelta >= 0 ? Colors.primary : Colors.warning}
+                    dataPointsRadius={4}
+                />
+            </View>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        backgroundColor: TOKENS.panel,
-        borderRadius: 24,
-        padding: 24,
-        shadowColor: 'rgba(0,0,0,0.06)',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 1,
-        shadowRadius: 20,
-        elevation: 8,
-        marginVertical: 15,
+    labCard: {
+        backgroundColor: Colors.surface,
+        borderRadius: BorderRadius.lg,
+        padding: Spacing.xl,
         borderWidth: 1,
-        borderColor: TOKENS.border,
-        overflow: 'hidden',
+        borderColor: Colors.border,
+        ...Shadows.diffuse,
     },
-    header: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    title: {
-        fontSize: 22,
-        fontWeight: '800',
-        color: TOKENS.text,
-        letterSpacing: -0.3,
-    },
-    subtitle: {
-        fontSize: 14,
-        color: TOKENS.textMuted,
-        marginTop: 4,
-        marginBottom: 20,
-        fontWeight: '500',
-    },
-    controlsLayout: {
-        flexDirection: Platform.OS === 'web' ? 'row' : 'column',
-        gap: 20,
-        marginBottom: 25,
-    },
-    controlGroup: {
-        flex: 1,
-        backgroundColor: '#f8fafc',
-        borderRadius: 16,
-        padding: 20,
-        borderWidth: 1,
-        borderColor: '#f1f5f9',
-    },
-    controlHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 15,
-    },
-    label: {
-        fontSize: 15,
-        fontWeight: '700',
-        color: TOKENS.text,
-    },
-    valBadge: {
-        fontSize: 16,
-        fontWeight: '800',
-        color: TOKENS.primary,
-        backgroundColor: TOKENS.panel,
-        paddingHorizontal: 12,
-        paddingVertical: 4,
-        borderRadius: 12,
-        overflow: 'hidden',
-        shadowColor: 'rgba(0,0,0,0.05)',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 1,
-        shadowRadius: 4,
-        elevation: 2,
-    },
-    slider: {
-        width: '100%',
-        height: 40,
-        marginVertical: 5,
-    },
-    sliderLimits: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        paddingHorizontal: 5,
-    },
-    limitText: {
-        fontSize: 12,
-        color: TOKENS.gray,
-        fontWeight: '600',
-    },
-    chartContainer: {
-        marginTop: 10,
-        paddingTop: 20,
-        borderTopWidth: 1,
-        borderColor: TOKENS.border,
-    },
-    chartHeaderRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 15,
-    },
-    chartTitle: {
-        fontSize: 16,
-        fontWeight: '700',
-        color: TOKENS.text,
-    },
-    liveCursorBadge: {
+    labHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#f1f5f9',
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 20,
-        gap: 6,
+        justifyContent: 'space-between',
+        marginBottom: Spacing.lg,
+        paddingBottom: Spacing.md,
+        borderBottomWidth: 1,
+        borderBottomColor: Colors.border,
     },
-    livePulseDot: {
-        width: 7,
-        height: 7,
-        borderRadius: 4,
+    labTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: Spacing.sm,
     },
-    liveCursorText: {
-        fontSize: 11,
-        fontWeight: '600',
-        color: TOKENS.textMuted,
-    },
-    chartWrapper: {
+    labIconBox: {
+        width: 38,
+        height: 38,
+        borderRadius: BorderRadius.md,
+        backgroundColor: `${Colors.primary}12`,
         alignItems: 'center',
         justifyContent: 'center',
-        marginVertical: 10,
-        width: '100%',
-        overflow: 'visible',
     },
-
-    // ==========================================
-    // Styles Infobulle Dynamique (Tooltip Card)
-    // ==========================================
-    tooltipContainer: {
-        backgroundColor: TOKENS.cardDark,
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderRadius: 10,
+    labTitle: {
+        fontSize: 16.5,
+        fontWeight: '700',
+        color: Colors.textDark,
+        fontFamily: Typography.primaryFont,
+    },
+    labSubtitle: {
+        fontSize: 11.5,
+        color: Colors.textMuted,
+        fontFamily: Typography.primaryFont,
+    },
+    simulatingBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        backgroundColor: Colors.background,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: BorderRadius.round,
+    },
+    simulatingText: {
+        fontSize: 11,
+        color: Colors.primary,
+        fontFamily: Typography.primaryFont,
+        fontWeight: '600',
+    },
+    // Sliders
+    slidersContainer: {
+        gap: Spacing.md,
+        marginBottom: Spacing.xl,
+    },
+    sliderItem: {
+        backgroundColor: Colors.background,
+        borderRadius: BorderRadius.md,
+        padding: Spacing.md,
         borderWidth: 1,
-        borderColor: TOKENS.cardDarkBorder,
-        shadowColor: '#000000',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.35,
-        shadowRadius: 10,
-        elevation: 10,
-        minWidth: 130,
-        alignItems: 'flex-start',
+        borderColor: Colors.border,
     },
-    tooltipHeader: {
+    sliderLabelRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: Spacing.xs,
+    },
+    sliderTag: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        marginBottom: 3,
     },
-    tooltipStatusDot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
+    sliderName: {
+        fontSize: 12.5,
+        fontWeight: '600',
+        color: Colors.textDark,
+        fontFamily: Typography.primaryFont,
     },
-    tooltipStepText: {
-        color: '#f8fafc',
-        fontSize: 11,
+    sliderValueText: {
+        fontSize: 13,
         fontWeight: '700',
-        letterSpacing: 0.2,
+        color: Colors.primary,
+        fontFamily: Typography.monoFont,
     },
-    tooltipBody: {
+    sliderControl: {
+        height: 34,
+    },
+    sliderRangeLimits: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
         marginTop: 2,
     },
-    tooltipMetricLabel: {
-        color: '#94a3b8',
-        fontSize: 9.5,
-        fontWeight: '500',
-        textTransform: 'uppercase',
-        letterSpacing: 0.4,
+    limitText: {
+        fontSize: 10,
+        color: Colors.textMuted,
+        fontFamily: Typography.primaryFont,
     },
-    tooltipValueRow: {
+    limitCenter: {
+        fontSize: 10,
+        color: Colors.textDark,
+        fontWeight: '600',
+        fontFamily: Typography.primaryFont,
+    },
+    // Before / After Outcome Card
+    outcomeCard: {
+        backgroundColor: Colors.surface,
+        borderRadius: BorderRadius.md,
+        borderWidth: 1,
+        borderColor: `${Colors.primary}30`,
+        padding: Spacing.lg,
+        marginBottom: Spacing.xl,
+        ...Shadows.subtle,
+    },
+    outcomeHeader: {
+        marginBottom: Spacing.md,
+    },
+    outcomeTitle: {
+        fontSize: 13.5,
+        fontWeight: '700',
+        color: Colors.textDark,
+        fontFamily: Typography.primaryFont,
+    },
+    outcomeSub: {
+        fontSize: 11,
+        color: Colors.textMuted,
+        fontFamily: Typography.primaryFont,
+    },
+    comparisonGrid: {
         flexDirection: 'row',
-        alignItems: 'baseline',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: Spacing.sm,
     },
-    tooltipMetricValue: {
-        fontSize: 15,
-        fontWeight: '800',
-        letterSpacing: -0.2,
+    comparisonCol: {
+        flex: 1,
+        minWidth: 160,
     },
-    tooltipSubValue: {
-        color: '#94a3b8',
+    compLabel: {
+        fontSize: 11,
+        color: Colors.textMuted,
+        fontFamily: Typography.primaryFont,
+        fontWeight: '600',
+        textTransform: 'uppercase',
+        letterSpacing: 0.3,
+    },
+    compValueRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginTop: 4,
+    },
+    beforeValue: {
+        fontSize: 16,
+        fontWeight: '500',
+        color: Colors.textMuted,
+        fontFamily: Typography.monoFont,
+        textDecorationLine: 'line-through',
+    },
+    afterValue: {
+        fontSize: 22,
+        fontWeight: '700',
+        fontFamily: Typography.monoFont,
+    },
+    compDelta: {
         fontSize: 10.5,
-        fontWeight: '600',
+        color: Colors.textMuted,
+        fontFamily: Typography.primaryFont,
+        marginTop: 3,
     },
-
-    alertBanner: {
-        marginTop: 20,
-        backgroundColor: TOKENS.dangerLight,
-        padding: 14,
-        borderRadius: 12,
-        borderLeftWidth: 4,
-        borderColor: TOKENS.danger,
+    compDivider: {
+        width: 1,
+        height: 48,
+        backgroundColor: Colors.border,
     },
-    alertBannerText: {
-        color: TOKENS.danger,
-        fontWeight: '600',
+    // Chart Section
+    chartSection: {
+        marginTop: Spacing.xs,
+    },
+    chartTitleRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: Spacing.md,
+    },
+    chartTitle: {
         fontSize: 13,
+        fontWeight: '700',
+        color: Colors.textDark,
+        fontFamily: Typography.primaryFont,
+    },
+    chartScale: {
+        fontSize: 11,
+        color: Colors.textMuted,
+        fontFamily: Typography.primaryFont,
     },
 });

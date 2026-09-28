@@ -8,11 +8,11 @@ export const getActuators = async () => {
     return await response.json();
 };
 
-export const toggleActuatorAPI = async (key: string, state: boolean) => {
+export const toggleActuatorAPI = async (key: string, state: boolean, greenhouseId?: string) => {
     const response = await fetch(`${API_BASE_URL}/actuators/${key}/command`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ state }),
+        body: JSON.stringify({ state, greenhouseId, greenhouse_id: greenhouseId }),
     });
     if (!response.ok) {
         throw new Error(`Command Failed: ${response.status}`);

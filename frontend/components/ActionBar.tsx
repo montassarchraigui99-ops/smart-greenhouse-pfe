@@ -8,9 +8,13 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Vibration, ActivityIndicator, Platform, Modal, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { API_BASE_URL } from '../services/api';
+import { useActiveGreenhouse } from '../context/ActiveGreenhouseContext';
+import { useTranslation } from '../i18n';
 
 export default function ActionBar() {
     const router = useRouter();
+    const { t } = useTranslation();
+    const { activeGreenhouseId } = useActiveGreenhouse();
     const [isSimulating, setIsSimulating] = useState(false);
     const [isSuccess, setIsSuccess] = useState(false);
     const [modalVisible, setModalVisible] = useState(false);
@@ -38,13 +42,15 @@ export default function ActionBar() {
 
         try {
             // Construit un payload unique pour le backend contenant uniquement les champs valides
-            const payload: Record<string, number> = {};
+            const payload: any = {
+                greenhouseId: activeGreenhouseId
+            };
             if (temp.trim() !== '') payload.ambient_temperature = parseFloat(temp);
             if (humidity.trim() !== '') payload.air_humidity = parseFloat(humidity);
             if (light.trim() !== '') payload.photoperiod = parseFloat(light);
             if (water.trim() !== '') payload.water_consumption = parseFloat(water);
 
-            if (Object.keys(payload).length === 0) {
+            if (Object.keys(payload).length <= 1) {
                 setIsSimulating(false);
                 return;
             }
@@ -106,46 +112,46 @@ export default function ActionBar() {
     return (
         <View style={styles.container}>
             <TouchableOpacity style={styles.primaryButton} activeOpacity={0.8} onPress={handleOpenTwin}>
-                <Text style={styles.primaryButtonText}>Ouvrir le jumeau numérique →</Text>
+                <Text style={styles.primaryButtonText}>{t('actionbar.open_twin')}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={[styles.secondaryButton, isSuccess && { borderColor: '#27ae60' }]} activeOpacity={0.6} onPress={() => setModalVisible(true)}>
                 <Text style={[styles.secondaryButtonText, isSuccess && { color: '#27ae60' }]}>
-                    {isSuccess ? "✔ Scénario Envoyé" : "Simuler un scénario"}
+                    {isSuccess ? t('actionbar.simu_sent') : t('actionbar.simulate')}
                 </Text>
             </TouchableOpacity>
 
             <Modal animationType="fade" transparent={true} visible={modalVisible} onRequestClose={() => setModalVisible(false)}>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>🧪 Conception de Scénario</Text>
-                        <Text style={styles.modalDesc}>Mélangez librement les paramètres pour tester la robustesse de l'IA (Laissez vide pour ignorer).</Text>
+                        <Text style={styles.modalTitle}>{t('actionbar.modal_title')}</Text>
+                        <Text style={styles.modalDesc}>{t('actionbar.modal_desc')}</Text>
 
                         <View style={styles.gridForm}>
                             <View style={styles.inputCol}>
-                                <Text style={styles.label}>Température Serre (°C)</Text>
+                                <Text style={styles.label}>{t('actionbar.temp_label')}</Text>
                                 <TextInput style={styles.input} value={temp} onChangeText={setTemp} placeholder="Ex: 40" keyboardType="numeric" />
                             </View>
                             <View style={styles.inputCol}>
-                                <Text style={styles.label}>Humidité Relative (%)</Text>
+                                <Text style={styles.label}>{t('actionbar.hum_label')}</Text>
                                 <TextInput style={styles.input} value={humidity} onChangeText={setHumidity} placeholder="Ex: 15" keyboardType="numeric" />
                             </View>
                             <View style={styles.inputCol}>
-                                <Text style={styles.label}>Photopériode (h/j)</Text>
+                                <Text style={styles.label}>{t('actionbar.photo_label')}</Text>
                                 <TextInput style={styles.input} value={light} onChangeText={setLight} placeholder="Ex: 16" keyboardType="numeric" />
                             </View>
                             <View style={styles.inputCol}>
-                                <Text style={styles.label}>Consommation d'eau (L/j)</Text>
+                                <Text style={styles.label}>{t('actionbar.water_label')}</Text>
                                 <TextInput style={styles.input} value={water} onChangeText={setWater} placeholder="Ex: 8.5" keyboardType="numeric" />
                             </View>
                         </View>
 
                         <View style={styles.modalActions}>
                             <TouchableOpacity style={styles.cancelBtn} onPress={() => setModalVisible(false)}>
-                                <Text style={styles.cancelBtnText}>Annuler</Text>
+                                <Text style={styles.cancelBtnText}>{t('actionbar.cancel')}</Text>
                             </TouchableOpacity>
                             <TouchableOpacity style={[styles.submitBtn, isSimulating && styles.disabledButton]} onPress={executeSimulation} disabled={isSimulating}>
-                                {isSimulating ? <ActivityIndicator color="#ffffff" size="small" /> : <Text style={styles.submitBtnText}>Déclencher</Text>}
+                                {isSimulating ? <ActivityIndicator color="#ffffff" size="small" /> : <Text style={styles.submitBtnText}>{t('actionbar.trigger')}</Text>}
                             </TouchableOpacity>
                         </View>
                     </View>

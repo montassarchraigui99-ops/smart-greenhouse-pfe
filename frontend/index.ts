@@ -22,7 +22,9 @@ if (typeof console !== 'undefined') {
             fullMessage.includes('non-boolean attribute') ||
             fullMessage.includes('collapsable') ||
             fullMessage.includes('React does not recognize the') ||
-            fullMessage.includes('Received `false` for a non-boolean attribute')
+            fullMessage.includes('Received `false` for a non-boolean attribute') ||
+            fullMessage.includes('Invalid style property of "direction"') ||
+            fullMessage.includes('Invalid style property of `direction`')
         ) {
             return;
         }
@@ -63,6 +65,7 @@ LogBox.ignoreLogs([
     /Invalid event handler property/i,
     /props\.pointerEvents is deprecated/i,
     /"shadow\*" style props are deprecated/i,
+    /Invalid style property of ["`]direction["`]/i,
 ]);
 
 import 'expo-router/entry';

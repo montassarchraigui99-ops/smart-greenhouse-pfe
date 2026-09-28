@@ -13,7 +13,7 @@ export const useToggleActuator = () => {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: ({ key, state }: { key: string; state: boolean }) => toggleActuatorAPI(key, state),
+        mutationFn: ({ key, state, greenhouseId }: { key: string; state: boolean; greenhouseId?: string }) => toggleActuatorAPI(key, state, greenhouseId),
         onSuccess: () => {
             // Force re-fetch of actuators so UI updates immediately
             queryClient.invalidateQueries({ queryKey: ['actuators'] });

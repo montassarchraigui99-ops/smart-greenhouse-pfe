@@ -1,41 +1,63 @@
+/**
+ * "Living Intelligence" Design System
+ * Smart Agri Greenhouse (CyberCortex ERP)
+ */
+
+import { Platform } from 'react-native';
+
 export const Colors = {
-    // Brand Core: Dark Agricultural Green
-    primary: '#1B5E20', // Dark Green
-    primaryLight: '#4CAF50',
-    primaryDark: '#0A3D14',
+    // 1. Mandatory Living Intelligence Color System
+    primary: '#1F7A46',      // Deep Botanical Green - Active states, primary actions
+    secondary: '#4CAF73',    // Fresh Green - Healthy states
+    background: '#F7F9F6',   // Warm Off-White - Main app background
+    surface: '#FFFFFF',      // Pure White - Cards, modals, floating elements
+    textDark: '#17221B',     // Primary typography
+    textMuted: '#66736A',    // Secondary labels, empty states
+    border: '#E3E9E4',       // Subtle dividers
+    warning: '#D99A32',      // Attention states
+    danger: '#D95C5C',       // Critical alerts
+    info: '#4D86C7',         // Informational, AI insights
 
-    // UI Elements (Neutral & Clean)
-    background: '#F9FAFB', // Gray 50 - Very clean, neutral off-white
-    surface: '#FFFFFF',    // Clean White
-
-    // Clean Borders
-    glassBackground: 'transparent',
-    glassBorder: '#E5E7EB',
-
-    // Highly Legible Typography
-    text: '#111827', // Gray 900
-    textSecondary: '#6B7280', // Gray 500
+    // Aliases for seamless backward compatibility
+    text: '#17221B',
+    textSecondary: '#66736A',
     textInverse: '#FFFFFF',
-    border: '#E5E7EB', // Gray 200
+    success: '#4CAF73',
+    successBg: '#EAF6EE',
+    warningBg: '#FDF6EA',
+    critical: '#D95C5C',
+    criticalBg: '#FDEEEE',
+    infoBg: '#EDF3F9',
+    glassBackground: 'rgba(255, 255, 255, 0.88)',
+    glassBorder: '#E3E9E4',
 
-    // Enhanced Semantic Colors (Professional tones)
-    success: '#059669',
-    successBg: '#ECFDF5',
-    warning: '#D97706',
-    warningBg: '#FFFBEB',
-    critical: '#DC2626',
-    criticalBg: '#FEF2F2',
-    info: '#2563EB',
-    infoBg: '#EFF6FF',
-
-    // Specific Sensor Accents (Subtle and readable)
-    temperature: '#E11D48',
-    humidity: '#0284C7',
-    soilMoisture: '#92400E',
-    light: '#CA8A04',
+    // Specific Sensor & Domain Tones (Subtle, organic)
+    temperature: '#E06D53',
+    humidity: '#4D86C7',
+    soilMoisture: '#8A6A48',
+    light: '#D99A32',
     ph: '#7C3AED',
     ec: '#0D9488',
-    waterLevel: '#2563EB',
+    waterLevel: '#4D86C7',
+};
+
+const primaryFontFamily = Platform.select({
+    ios: 'System',
+    android: 'Roboto',
+    web: 'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+}) as string;
+
+const monoFontFamily = Platform.select({
+    ios: 'Courier',
+    android: 'monospace',
+    web: '"JetBrains Mono", "Fira Code", monospace'
+}) as string;
+
+export const Typography = {
+    primaryFont: primaryFontFamily,
+    monoFont: monoFontFamily,
+    sans: primaryFontFamily,
+    mono: monoFontFamily,
 };
 
 export const Spacing = {
@@ -43,38 +65,73 @@ export const Spacing = {
     sm: 8,
     md: 16,
     lg: 20,
-    xl: 28,
-    xxl: 40,
+    xl: 24,
+    xxl: 32,
+    xxxl: 48,
 };
 
 export const BorderRadius = {
-    sm: 4,
-    md: 8,
-    lg: 12, // Reduced for a more structured, enterprise look
-    xl: 16,
+    sm: 8,
+    md: 12,
+    lg: 16,
+    xl: 20,
     round: 9999,
+    pill: 9999,
 };
 
 export const Shadows = {
+    // Extremely light, diffused shadows avoiding harsh drop shadows
+    subtle: {
+        shadowColor: '#17221B',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.03,
+        shadowRadius: 8,
+        elevation: 1,
+    },
+    diffuse: {
+        shadowColor: '#17221B',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.04,
+        shadowRadius: 16,
+        elevation: 2,
+    },
+    float: {
+        shadowColor: '#17221B',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.06,
+        shadowRadius: 24,
+        elevation: 4,
+    },
+    // Backward compatibility aliases
     sm: {
-        shadowColor: '#111827',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 2,
+        shadowColor: '#17221B',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.03,
+        shadowRadius: 6,
         elevation: 1,
     },
     md: {
-        shadowColor: '#111827',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 4,
-        elevation: 3,
+        shadowColor: '#17221B',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.04,
+        shadowRadius: 14,
+        elevation: 2,
     },
     lg: {
-        shadowColor: '#111827',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-        elevation: 5,
+        shadowColor: '#17221B',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.06,
+        shadowRadius: 22,
+        elevation: 4,
     },
 };
+
+export const LivingTheme = {
+    colors: Colors,
+    typography: Typography,
+    spacing: Spacing,
+    borderRadius: BorderRadius,
+    shadows: Shadows,
+};
+
+export default LivingTheme;

@@ -69,3 +69,8 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
+# Local test artifacts & browser profiles
+chrome-debug-profile/
+verify_*.png
+*.bak
+
